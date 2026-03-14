@@ -1,0 +1,100 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: bugsi
+      POSTGRES_USER: bugsi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # DB port not exposed to host — access only via Docker network
+    # Uncomment for local development debugging:
+    # ports:
+    #   - "127.0.0.1:5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bugsi"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  jaeger:
+    image: jaegertracing/jaeger:2.15.0
+    ports:
+      - "16686:16686"  # Jaeger UI
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP
+    profiles:
+      - otel
+
+  backend:
+    build: ./backend
+    environment:
+      DATABASE_URL: postgresql+asyncpg://bugsi:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/bugsi
+      SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
+      UPLOAD_DIR: /data/uploads
+      CORS_ORIGINS: http://localhost:5173,http://localhost:3000
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@bugsi.local}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set}
+      GIT_REPO_URL: ${GIT_REPO_URL:-}
+      GIT_DEVICE_CODE_PATH: ${GIT_DEVICE_CODE_PATH:-device-client/bugsi_daemon}
+      GIT_INSECT_DETECTOR_PATH: ${GIT_INSECT_DETECTOR_PATH:-insect-detector}
+      OTEL_ENABLED: ${OTEL_ENABLED:-false}
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+    volumes:
+      - upload_data:/data/uploads
+      - ./backend:/app
+      - ./device-client:/device-client:ro
+      - ./insect-detector:/insect-detector:ro
+      # Uncomment to use SSH-based git auth for OTA builds:
+      # - ~/.ssh:/root/.ssh:ro
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload"
+
+  frontend:
+    build: ./frontend
+    environment:
+      VITE_API_URL: http://backend:8000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    ports:
+      - "5173:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:5173/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    command: npm run dev -- --host 0.0.0.0
+
+  device-client:
+    build: ./device-client
+    environment:
+      BUGSI_API_URL: http://backend:8000/api/device-data
+      BUGSI_API_KEY: ${TEST_DEVICE_API_KEY:-}
+      BUGSI_MOCK_HARDWARE: "true"
+    depends_on:
+      backend:
+        condition: service_healthy
+    stdin_open: true
+    tty: true
+    command: bugsi run --mock
+
+volumes:
+  postgres_data:    # WARNING: 'docker-compose down -v' deletes this volume and all DB data
+  upload_data:      # WARNING: 'docker-compose down -v' deletes uploaded files

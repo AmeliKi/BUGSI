@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BUGSI Device</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header>
+    <h1>BUGSI Device</h1>
+    <nav>
+      <button class="tab active" data-tab="camera">Camera</button>
+      <button class="tab" data-tab="gallery">Gallery</button>
+      <button class="tab" data-tab="config">Config</button>
+      <button class="tab" data-tab="status">Status</button>
+    </nav>
+  </header>
+
+  <main>
+    <section id="camera" class="panel active">
+      <h2>Live Camera</h2>
+      <div class="camera-controls">
+        <button id="btn-stream">Start Stream</button>
+        <button id="btn-snapshot">Snapshot</button>
+      </div>
+      <div class="camera-view">
+        <img id="camera-img" alt="Camera feed">
+      </div>
+    </section>
+
+    <section id="gallery" class="panel">
+      <h2>Detection Gallery</h2>
+      <div id="gallery-grid" class="gallery-grid"></div>
+      <button id="btn-load-more">Load More</button>
+    </section>
+
+    <section id="config" class="panel">
+      <h2>Configuration</h2>
+      <div class="config-info">
+        <span>Version: <strong id="config-version">-</strong></span>
+      </div>
+      <div class="config-view-toggle">
+        <button id="btn-view-form" class="view-toggle active" data-view="form">Form</button>
+        <button id="btn-view-json" class="view-toggle" data-view="json">JSON</button>
+      </div>
+      <div id="config-form"></div>
+      <div id="config-json-view" style="display:none;">
+        <textarea id="config-editor" rows="20"></textarea>
+      </div>
+      <div class="config-actions">
+        <button id="btn-save-config">Save &amp; Push to SaaS</button>
+        <button id="btn-reload-config">Reload</button>
+      </div>
+      <div id="config-status" class="status-msg"></div>
+    </section>
+
+    <section id="status" class="panel">
+      <h2>Device Status</h2>
+      <pre id="status-output">Loading...</pre>
+      <button id="btn-refresh-status">Refresh</button>
+    </section>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>

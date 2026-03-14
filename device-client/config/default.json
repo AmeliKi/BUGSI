@@ -1,0 +1,39 @@
+{
+  "camera": {
+    "resolution_width": 3840,
+    "resolution_height": 2160,
+    "camera_id": 0,
+    "autofocus_mode": "continuous",
+    "jpeg_quality": 85
+  },
+  "telemetry": {
+    "collection_interval_minutes": 5
+  },
+  "upload": {
+    "interval_minutes": 60,
+    "max_batch_size": 100,
+    "battery_soc_threshold": 20
+  },
+  "power": {
+    "night_mode_enabled": true,
+    "night_start_hour": 22,
+    "night_end_hour": 6,
+    "modem_always_off": true,
+    "zigbee_always_on": true,
+    "battery": false,
+    "wlan_timeout_minutes": 10
+  },
+  "storage": {
+    "buffer_db_path": "/mnt/usb/bugsi/buffer.db",
+    "backup_path": "/mnt/usb/bugsi/backup/",
+    "backup_interval_minutes": 60,
+    "cleanup_after_days": 30
+  },
+  "webserver": {
+    "enabled": true,
+    "host": "0.0.0.0",
+    "port": 8080,
+    "camera_fps": 2,
+    "detections_dir": "/mnt/usb/bugsi/detections"
+  }
+}

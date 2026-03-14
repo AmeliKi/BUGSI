@@ -1,0 +1,69 @@
+{
+  "camera": {
+    "resolution_width": 3840,
+    "resolution_height": 2160,
+    "jpeg_quality": 85,
+    "autofocus_mode": "continuous",
+    "camera_id": 1,
+    "warmup_frames": 5
+  },
+  "detection": {
+    "threshold": 25,
+    "min_contour_area": 200,
+    "max_contour_area": 50000,
+    "min_aspect_ratio": 0.2,
+    "max_aspect_ratio": 5.0,
+    "min_solidity": 0.3,
+    "morph_kernel_size": 5,
+    "morph_iterations": 2,
+    "blur_kernel_size": 5
+  },
+  "classification": {
+    "bee_hue_min": 15,
+    "bee_hue_max": 45,
+    "bee_sat_min": 80,
+    "beetle_value_max": 80,
+    "beetle_sat_max": 60,
+    "moth_sat_max": 100,
+    "butterfly_min_area": 3000,
+    "butterfly_color_std_min": 30
+  },
+  "scheduling": {
+    "capture_interval_seconds": 30,
+    "min_interval_seconds": 10,
+    "max_interval_seconds": 300,
+    "adaptive": true,
+    "night_start_hour": 22,
+    "night_end_hour": 6,
+    "peak_start_hour": 9,
+    "peak_end_hour": 16,
+    "peak_interval_seconds": 15,
+    "no_detection_backoff_factor": 1.5,
+    "detection_speedup_factor": 0.5
+  },
+  "background": {
+    "mog2_history": 100,
+    "mog2_var_threshold": 40,
+    "mog2_detect_shadows": false,
+    "warmup_frames": 10
+  },
+  "power": {
+    "low_battery_soc_threshold": 15.0,
+    "critical_battery_soc_threshold": 5.0,
+    "battery_soc_file": "/tmp/bugsi_battery_soc",
+    "cpu_governor_path": "/sys/devices/system/cpu/cpu0/cpufreq/scaling_governor"
+  },
+  "output": {
+    "output_dir": "detections",
+    "save_crops": true,
+    "save_full_frame": false,
+    "thumbnail_size_width": 480,
+    "thumbnail_size_height": 360,
+    "log_file": "detections.jsonl"
+  },
+  "size_estimation": {
+    "distance_cm": 40,
+    "sensor_width_mm": 6.287,
+    "focal_length_mm": 4.74
+  }
+}

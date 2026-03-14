@@ -1,8 +1,8 @@
-# BUGSY - Hardware-Loesung
+# BUGSI - Hardware-Loesung
 ## Autarkes Geraet zur Erkennung und Zaehlung von Insekten
 
-**Version:** 0.6.0
-**Datum:** 2026-03-05
+**Version:** 0.7.0
+**Datum:** 2026-03-13
 **Status:** Entwurf
 
 ---
@@ -12,46 +12,44 @@
 ### 1.1 Konzept
 
 ```
-                  2x Sonnenpanel (je 50W, in Serie → 24V)
-                 ┌──────────────────┐ ┌──────────────────┐
-                 │     Panel 1      │ │     Panel 2      │
-                 └────────┬─────────┘ └────────┬─────────┘
-                          │ (in Serie)          │
-                          └──────────┬──────────┘
-                                     │
-          Pfosten A                  │                  Pfosten B
-             ║      ┌───────────────────────────┐          ║
-             ║      │     Elektronik-Box        │          ║
-             ║      │     (IP65)                │          ║
-             ║      └───────────┬───────────────┘          ║
-             ║                  │                           ║
-             ║    ┌─────────────┴──────────────┐           ║
-             ║    │       Kamera-Box            │           ║
-             ║    │  CAM0: GenX320 Event-Cam    │           ║
-             ║    │  CAM1: Arducam 64MP         │           ║
-             ║    └─────────────┬──────────────┘           ║
-             ║                  │                           ║
-             ║                  │  ~40cm                    ║
-             ║                  │                           ║
-             ║    ┌─────────────┴──────────────┐           ║
-             ║    │     Kontrastschirm          │           ║
-             ║    │      (60 x 60 cm)           │           ║
-             ║    └────────────────────────────┘           ║
-             ║                                              ║
-      ═══════╩══════════════════════════════════════════════╩═══  Boden
-             │                                              │
-        ┌────┴──────────────────────────────────────────────┴────┐
-        │              Akku-Box (am Boden)                       │
-        │              24V 100Ah LiFePO4                         │
-        │              (~20 kg, ~53 x 21 x 22 cm)               │
-        └───────────────────────────────────────────────────────┘
+                     1x Sonnenpanel (50W, 12V)
+                    ┌──────────────────────────┐
+                    │     Solarpanel 50W        │
+                    └────────────┬─────────────┘
+                                 │
+         Pfosten A               │                  Pfosten B
+            ║      ┌───────────────────────────┐          ║
+            ║      │     Elektronik-Box        │          ║
+            ║      │     (IP65)                │          ║
+            ║      └───────────┬───────────────┘          ║
+            ║                  │                           ║
+            ║    ┌─────────────┴──────────────┐           ║
+            ║    │       Kamera-Box            │           ║
+            ║    │  IDS uEye XLS-E (USB3)     │           ║
+            ║    │  Arducam 64MP (CSI-2)      │           ║
+            ║    └─────────────┬──────────────┘           ║
+            ║                  │                           ║
+            ║                  │  ~40cm                    ║
+            ║                  │                           ║
+            ║    ┌─────────────┴──────────────┐           ║
+            ║    │     Kontrastschirm          │           ║
+            ║    │      (60 x 60 cm)           │           ║
+            ║    └────────────────────────────┘           ║
+            ║                                              ║
+     ═══════╩══════════════════════════════════════════════╩═══  Boden
+            │                                              │
+       ┌────┴──────────────────────────────────────────────┴────┐
+       │              Akku-Box (am Boden)                       │
+       │              12V 100Ah LiFePO4                         │
+       │              (~13 kg, ~33 x 17 x 22 cm)               │
+       └───────────────────────────────────────────────────────┘
 
-        ~~~~~~~~  Zigbee-Wetterstation (IP65)  ~~~~~~~~
-        ~~~~~~~~  (separat, bis 100m entfernt)  ~~~~~~~~
+       ~~~~~~~~  Zigbee-Wetterstation (IP65)  ~~~~~~~~
+       ~~~~~~~~  (separat, bis 100m entfernt)  ~~~~~~~~
 ```
 
 **Funktionsprinzip:**
-1. Prophesee GenX320 Event-Kamera laeuft dauerhaft (<50 mW) und erkennt Bewegung
+1. IDS uEye XLS-E Event-Kamera (IMX636) laeuft dauerhaft (~1 W) und erkennt Bewegung
 2. Event-Kamera meldet asynchron nur Pixel-Aenderungen (kein Bild bei Stillstand → ~0 Daten)
 3. Bei erkanntem Insekten-Event: Pi 5 loest 64MP Aufnahme aus (Arducam Hawkeye)
 4. Hochaufloestes Bild wird lokal auf USB-Stick gespeichert
@@ -63,7 +61,7 @@
 
 | Modus | Beschreibung | Stromverbrauch |
 |-------|-------------|----------------|
-| **Ueberwachung** | GenX320 aktiv, Pi 5 auf Event-Stream wartend (Low-CPU) | ~3.0 W |
+| **Ueberwachung** | IDS XLS-E aktiv, Pi 5 auf Event-Stream wartend (Low-CPU) | ~3.5 W |
 | **Erfassung** | Event erkannt → 64MP Aufnahme + Speicherung | ~7 W (kurz, ~5 Sek) |
 | **Upload** | Sixfab LTE einschalten → Upload → ausschalten (periodisch) | ~5 W (kurz) |
 | **Nacht/Aus** | Komplett aus, nur RTC aktiv | ~0.01 W |
@@ -76,7 +74,7 @@
 
 | Komponente | Spezifikation | Stueck | Preis/Stueck | Begruendung |
 |-----------|--------------|--------|-------------|-------------|
-| Raspberry Pi 5 (4GB) | BCM2712, 4x A76 2.4GHz | 1 | ~87 EUR | Einzige offiziell unterstuetzte Plattform fuer GenX320 Starter Kit; **2x native CSI-2 Ports** |
+| Raspberry Pi 5 (4GB) | BCM2712, 4x A76 2.4GHz | 1 | ~87 EUR | Leistungsfaehig fuer Event-Verarbeitung + Bilderfassung; native CSI-2 fuer Arducam; 2x USB 3.0 fuer IDS-Kamera + Speicher |
 | MicroSD 32GB (A2) | SanDisk Extreme | 1 | ~10 EUR | Betriebssystem (Raspberry Pi OS Lite) |
 | USB-Stick 64GB (USB 3.0) | Industriequalitaet, SLC/pSLC | 1 | ~15 EUR | Datenspeicher, tauschbar |
 
@@ -84,115 +82,161 @@
 
 | Komponente | Spezifikation | Stueck | Preis/Stueck | Begruendung |
 |-----------|--------------|--------|-------------|-------------|
-| **Prophesee GenX320 Starter Kit (RPi 5)** | 320x320, MIPI CSI-2, >140 dB, <50 mW | 1 | ~300 EUR (geschaetzt) | Event-basierter Trigger-Sensor an **CAM0** |
-| Arducam 64MP Hawkeye | IMX686, Autofokus, CSI-2 | 1 | ~80 EUR | High-Res Aufnahme an **CAM1** |
+| **IDS uEye XLS-E (UE-39B1XLS-E)** | IMX636, 1280x720, USB3, Event-basiert | 1 | ~500 EUR (Preis auf Anfrage) | Event-basierter Trigger-Sensor via **USB 3.0**; industrielle Qualitaet; Metavision SDK |
+| **S-Mount Objektiv (M12)** | ~3.6mm Brennweite, passend fuer 1/2.5" Sensor | 1 | ~15 EUR | Weitwinkel fuer 60x60cm Schirm bei ~40cm Abstand |
+| Arducam 64MP Hawkeye | IMX686, Autofokus, CSI-2 | 1 | ~80 EUR | High-Res Aufnahme an **CAM1** (CSI-2) |
 
-**Kamera-Architektur (Dual-CSI-2, kein Multiplexer noetig):**
+**Kamera-Architektur (USB3 + CSI-2):**
 
 ```
-    Pi 5 CAM0 (22-pin FPC)          Pi 5 CAM1 (22-pin FPC)
-           │                                │
-           │  MIPI CSI-2 (1-Lane)           │  MIPI CSI-2 (2-4 Lane)
-           │                                │
-    ┌──────▼──────┐                  ┌──────▼──────────┐
-    │  GenX320    │                  │  Arducam 64MP   │
-    │  Event-Cam  │                  │  Hawkeye        │
-    │  (Trigger)  │                  │  (Aufnahme)     │
-    │  <50 mW     │                  │  9152x6944 px   │
-    └─────────────┘                  └─────────────────┘
+    Pi 5 USB 3.0 Port                   Pi 5 CAM1 (22-pin FPC)
+           │                                    │
+           │  USB 3.0 (5 Gbps)                  │  MIPI CSI-2 (2-4 Lane)
+           │                                    │
+    ┌──────▼──────────┐                  ┌──────▼──────────┐
+    │  IDS uEye XLS-E │                  │  Arducam 64MP   │
+    │  UE-39B1XLS-E   │                  │  Hawkeye        │
+    │  (Event-Trigger) │                  │  (Aufnahme)     │
+    │  IMX636          │                  │  9152x6944 px   │
+    │  1280x720        │                  │                 │
+    │  0.4-2 W         │                  │                 │
+    └─────────────────┘                  └─────────────────┘
 ```
 
-> **Pi 5 hat 2 unabhaengige MIPI CSI-2 Ports** (CAM0 + CAM1), jeweils 4-Lane faehig.
-> Beide Kameras koennen gleichzeitig betrieben werden — kein Multiplexer noetig.
-> GenX320 nutzt nur 1 Lane, Arducam 64MP nutzt 2-4 Lanes → kein Bandbreiten-Konflikt.
-> Einsparung: ~57 EUR (Arducam Multi-Camera Adapter entfaellt).
+> **IDS uEye XLS-E nutzt USB 3.0**, Arducam 64MP nutzt CSI-2 (CAM1).
+> Kein Bandbreiten-Konflikt. USB3 ist robuster als ein zweites FPC-Flachbandkabel
+> fuer den Ausseneinsatz. Die Kamera wird direkt ueber USB mit Strom versorgt (bus-powered).
 
-**Prophesee GenX320 - Technische Daten:**
+**IDS uEye XLS-E (UE-39B1XLS-E) - Technische Daten:**
 
 | Parameter | Wert |
 |-----------|------|
-| Aufloesung | 320 x 320 Pixel |
-| Pixelgroesse | 6.3 x 6.3 um |
-| Optisches Format | 1/5" |
-| Dynamikumfang | >140 dB |
-| Low-Light Cutoff | 0.05 Lux |
-| Pixel-Latenz (1k Lux) | <150 us |
-| Aequivalente Bildrate | ~10.000 FPS |
-| Leistungsaufnahme (Sleep) | 36 uW |
-| Leistungsaufnahme (Aktiv) | ~3 mW (Sensor), <50 mW (Modul) |
-| Schnittstelle | MIPI CSI-2 (1-Lane D-PHY) |
-| Software | OpenEB (Open Source, Apache 2.0) + V4L2 Treiber |
+| Sensor | Sony IMX636 (Event-basiert, Sony + Prophesee) |
+| Aufloesung | 1280 x 720 Pixel (0.92 MP) |
+| Pixelgroesse | 4.86 x 4.86 um |
+| Optisches Format | 1/2.5" |
+| Dynamikumfang | >120 dB |
+| Aequivalente Bildrate | >10.000 FPS |
+| Leistungsaufnahme | 0.4 - 2 W (USB bus-powered) |
+| Schnittstelle | USB 3.0 (5 Gbps, SuperSpeed) |
+| Objektivanschluss | S-Mount (M12) |
+| Abmessungen | 29 x 29 x 7 mm (Board-Level) |
+| Gewicht | <30 g |
+| Software | IDS peak SDK + Metavision SDK (Prophesee) |
+| Betriebstemperatur | -10°C bis +60°C |
 
-**Bezugsquelle:** Prophesee Webshop (prophesee.ai), Preis auf Anfrage.
+**Bezugsquelle:** IDS Imaging (ids-imaging.com), Preis auf Anfrage.
+https://de.ids-imaging.com/store/ue-39b1xls-e.html
+
+**Vorteile gegenueber Prophesee GenX320 Starter Kit:**
+
+| | IDS uEye XLS-E (UE-39B1XLS-E) | Prophesee GenX320 Starter Kit |
+|---|---|---|
+| **Aufloesung** | 1280 x 720 (0.92 MP) | 320 x 320 (0.1 MP) |
+| **Sensor** | Sony IMX636 (industriell) | Prophesee GenX320 |
+| **Schnittstelle** | USB 3.0 (robust, lange Kabel) | MIPI CSI-2 (FPC, max ~30 cm) |
+| **Formfaktor** | 29x29x7 mm Board-Level, industriell | Starter Kit / Evaluation Board |
+| **Leistung** | 0.4-2 W | <50 mW |
+| **Support** | IDS industrieller Support + SDK | Community / Evaluation |
+| **Preis** | ~500 EUR (geschaetzt) | ~300 EUR (geschaetzt) |
+
+> **Trade-off:** Die IDS-Kamera verbraucht mehr Strom (~1 W vs. <50 mW), bietet aber
+> 9x hoehere Aufloesung, industriellen Support, robuste USB3-Anbindung und den
+> bewährten IMX636-Sensor (Sony + Prophesee Kooperation). Der Mehrverbrauch ist
+> durch die Einsparung auf 12V-System und den Wegfall des separaten DC-DC-Wandlers
+> kompensiert.
 
 ### 2.3 Energieversorgung
 
 | Komponente | Spezifikation | Stueck | Preis/Stueck | Begruendung |
 |-----------|--------------|--------|-------------|-------------|
-| **LiFePO4 Akku** | **25.6V (24V), 100Ah (2.560 Wh)** | 1 | ~440 EUR | Massive Autonomie (~36 Tage ohne Sonne); separate Bodenbox |
-| Solarpanel Monokristallin | 50W, 12V, ~70x55cm | 2 | ~50 EUR | **2 Panels in Serie → ~44V Voc** fuer 24V MPPT |
-| MPPT Laderegler | Victron SmartSolar 100/20 (24V) | 1 | ~61 EUR | 24V-faehig, 100V max PV-Eingang, 20A, VE.Direct |
-| DC-DC Wandler | 24V auf 5V, 5A, Step-Down, USB-C | 1 | ~15 EUR | Stabile 5V/5A fuer Pi 5 (Eingangsbereich 10-36V) |
-| Witty Pi 4 Mini | RTC + Power Management | 1 | ~30 EUR | Zeitgesteuertes Ein/Ausschalten, Auto-Restart |
+| **LiFePO4 Akku** | **12.8V (12V), 100Ah (1.280 Wh)** | 1 | ~220 EUR | Gute Autonomie (~18 Tage ohne Sonne); leichter als 24V; separate Bodenbox |
+| Solarpanel Monokristallin | 50W, 12V, ~70x55cm | 1 | ~50 EUR | **1 Panel reicht bei 12V** (Voc ~22V fuer 12V MPPT) |
+| MPPT Laderegler | Victron SmartSolar 75/15 (12V) | 1 | ~50 EUR | 12V, 75V max PV-Eingang, 15A, VE.Direct |
+| **Witty Pi 5 HAT+** | RP2350 MCU, RTC, Power Mgmt, **eingebauter DC/DC 6-30V→5V/5A** | 1 | ~39 EUR | Zeitgesteuertes Ein/Ausschalten; **integrierter Step-Down** (kein separater DC-DC noetig); UPS-Funktion |
+https://www.uugear.com/product/witty-pi-5/
 
-**Warum 24V 100Ah?**
-- 2.560 Wh Kapazitaet (2.048 Wh nutzbar bei 80% DoD)
-- Bei 53 Wh/Tag Verbrauch: **~39 Tage ohne Sonne**
-- Weit ueber der Anforderung von 5 Tagen → Betrieb ueber gesamte Saison ohne Akkuwechsel
-- Zwei Panels in Serie liefern ~320 Wh/Tag (Sommer) → Akku wird schnell nachgeladen
+**Warum 12V 100Ah?**
+- 1.280 Wh Kapazitaet (1.024 Wh nutzbar bei 80% DoD)
+- Bei 58 Wh/Tag Verbrauch: **~18 Tage ohne Sonne**
+- Weit ueber der Anforderung von 5 Tagen → Betrieb ueber gesamte Saison moeglich
+- Ein Panel liefert ~200 Wh/Tag (Sommer) → Akku wird taeglich nachgeladen
+- **Deutlich leichter als 24V** (~13 kg statt ~21 kg) → einfacherer Transport
+- **Deutlich guenstiger** (~220 EUR statt ~440 EUR)
+
+**Witty Pi 5 HAT+ — Schluesselkomponente:**
+
+Der Witty Pi 5 HAT+ vereint **drei Funktionen** in einem Board:
+1. **DC/DC-Wandler (6-30V → 5V, bis 5A):** Nimmt 12V direkt vom Akku und versorgt den Pi 5 — kein separater Step-Down-Wandler noetig
+2. **RTC (±3.8-5 ppm):** Hochpraezise Echtzeituhr fuer zeitgesteuertes Ein/Ausschalten
+3. **Power-Scheduling (RP2350 MCU + 16 MB Flash):** Scheduling-Skripte laufen unabhaengig vom Pi auf dem MCU — Stromzyklen auch bei OS-Absturz gesichert
+
+| Parameter | Wert |
+|-----------|------|
+| Eingang | 6-30V DC (Schraubklemme) oder 5V USB-C |
+| Ausgang | 5V, bis 5A (via GPIO an Pi 5) |
+| MCU | RP2350 + 16 MB Flash |
+| RTC-Genauigkeit | ±3.8-5 ppm |
+| RTC-Batterie | CR2032 |
+| Temperatursensor | 0.0625°C Aufloesung (onboard) |
+| UPS-Funktion | Dual Ideal-Diode, automatische Umschaltung |
+| Betriebstemperatur | -30°C bis +80°C |
+| Software | Open-Source: `wp5` CLI + `wp5d` Daemon (C, pico-sdk) |
+
+> **Vorteil:** Witty Pi 5 HAT+ ersetzt den separaten DC-DC-Wandler (24V→5V) und den
+> Witty Pi 4. Weniger Komponenten, weniger Fehlerquellen, bessere Effizienz.
+> Der integrierte Temperatursensor liefert Elektronik-Box-Temperatur als Bonus-Telemetrie.
 
 **Gewichtshinweis:**
 
-| Eigenschaft | 24V 100Ah | Anforderung |
+| Eigenschaft | 12V 100Ah | Anforderung |
 |-------------|-----------|-------------|
-| Gewicht | ~20-22 kg | 15 kg (Geraetelimit) |
-| Abmessungen | ~53 x 21 x 22 cm | 50x50x50 cm |
+| Gewicht | ~13 kg | 15 kg (Geraetelimit) |
+| Abmessungen | ~33 x 17 x 22 cm | 50x50x50 cm |
 
-> **Der Akku ueberschreitet das 15 kg Gesamtlimit.** Loesung: Akku wird in einer
-> separaten wetterfesten Box am Boden aufgestellt (nicht pfostenmontiert).
-> Pfostenmontierte Komponenten (Elektronik, Kameras, Schirm): ~10 kg.
-> Akku-Box am Boden: ~22 kg (+ Box ~2 kg = ~24 kg).
+> **Der Akku ist mit ~13 kg knapp unter dem 15 kg Gesamtlimit**, wird aber trotzdem
+> in einer separaten Bodenbox aufgestellt (Schwerpunkt, Stabilitaet).
+> Pfostenmontierte Komponenten (Elektronik, Kameras, Schirm): ~9 kg.
+> Akku-Box am Boden: ~13 kg (+ Box ~1.5 kg = ~14.5 kg).
 > Verbindung ueber 1-2m Kabel mit wetterfesten Steckverbindern.
 
 ### 2.4 Energiebudget-Berechnung
 
-**Tagesverbrauch (14h aktiv, 10h aus) — mit Prophesee Event-Kamera + Sixfab LTE:**
+**Tagesverbrauch (14h aktiv, 10h aus) — mit IDS Event-Kamera + Sixfab LTE:**
 
 | Phase | Leistung | Dauer | Energie |
 |-------|----------|-------|---------|
-| Ueberwachung (Pi 5 Low-CPU + GenX320) | 3.0 W | 13.5 h | 40.5 Wh |
+| Ueberwachung (Pi 5 Low-CPU + IDS XLS-E USB3) | 3.5 W | 13.5 h | 47.3 Wh |
 | Erfassungen (64MP, ~50 Events/Tag a 5s) | 7.0 W | ~0.07 h | 0.5 Wh |
 | Sixfab LTE Upload (GPIO16 ein → senden → aus) | 5.0 W | ~0.3 h | 1.5 Wh |
 | Sixfab LTE Idle (GPIO16 HW-Cutoff) | 0 W | Rest | 0 Wh |
 | Zigbee Dongle | 0.3 W | 14 h | 4.2 Wh |
 | SmartShunt (Akku-Monitoring, <1 mA) | 0.005 W | 24 h | 0.1 Wh |
 | Nacht (komplett aus, nur RTC) | 0.01 W | 10 h | 0.1 Wh |
-| **Subtotal** | | | **47.0 Wh** |
-| DC-DC Verluste (~12% bei 24V→5V) | | | **5.6 Wh** |
-| **Gesamt pro Tag** | | | **~53 Wh** |
+| **Subtotal** | | | **53.7 Wh** |
+| DC-DC Verluste (~8% bei 12V→5V via Witty Pi 5) | | | **4.3 Wh** |
+| **Gesamt pro Tag** | | | **~58 Wh** |
 
 **Autarkie-Berechnung:**
 
 | Parameter | Wert |
 |-----------|------|
-| Akku-Kapazitaet (nutzbar, 80% DoD) | 2.048 Wh |
-| Tagesverbrauch | 53 Wh |
-| **Tage ohne Sonne** | **~39 Tage** |
-| Solarertrag Sommer (2x50W, ~4h Peak Sun) | ~320 Wh/Tag |
-| Solarertrag Fruehling/Herbst (~2.5h) | ~200 Wh/Tag |
-| **Energiebilanz Sommer** | **+267 Wh/Tag** |
-| **Energiebilanz Fruehling/Herbst** | **+147 Wh/Tag** |
+| Akku-Kapazitaet (nutzbar, 80% DoD) | 1.024 Wh |
+| Tagesverbrauch | 58 Wh |
+| **Tage ohne Sonne** | **~18 Tage** |
+| Solarertrag Sommer (1x50W, ~4h Peak Sun) | ~200 Wh/Tag |
+| Solarertrag Fruehling/Herbst (~2.5h) | ~125 Wh/Tag |
+| **Energiebilanz Sommer** | **+142 Wh/Tag** |
+| **Energiebilanz Fruehling/Herbst** | **+67 Wh/Tag** |
 
-> Massiver Energieueberschuss. Optionen:
-> - Nur 1 Solarpanel verwenden (reicht im Sommer aus, spart 50 EUR + 2.5 kg)
-> - Zweites Panel als Reserve fuer bewoelkte Perioden im Fruehling/Herbst
-> - Akku-Kapazitaet ermoeglicht Betrieb ueber gesamte Saison (Maerz-Oktober)
->   auch bei laengeren Schlechtwetterperioden
+> Solider Energieueberschuss mit nur einem Panel. Selbst im Fruehling/Herbst ist die
+> Bilanz deutlich positiv (+67 Wh/Tag). Bei laengeren Schlechtwetterperioden bietet
+> der 100Ah-Akku 18 Tage Reserve — weit ueber der 5-Tage-Anforderung.
 
 ### 2.5 Batterie-Monitoring: Victron SmartShunt
 
 **Problem:** Der Ladezustand (SoC) eines LiFePO4-Akkus laesst sich nicht allein ueber die
-Spannung bestimmen — die Spannungskurve ist im Bereich 20-80% extrem flach (~25.4-26.4V).
+Spannung bestimmen — die Spannungskurve ist im Bereich 20-80% extrem flach (~12.8-13.2V).
 Ein DIY-Ansatz (INA226 + eigene Coulomb-Counting-Software) ist fragil: Kalibrierungsdrift,
 Shunt-Dimensionierung, fehlende Peukert-Kompensation, kein Anti-Drift-Mechanismus.
 
@@ -204,18 +248,14 @@ Shunt-Dimensionierung, fehlende Peukert-Kompensation, kein Anti-Drift-Mechanismu
 | **VE.Direct-to-USB Kabel** | FTDI USB-Serial, fuer SmartShunt → Pi | 1 | ~34 EUR | Zuverlaessige kabelgebundene Datenverbindung, 1-Sek-Intervall |
 | **VE.Direct-to-USB Kabel** | FTDI USB-Serial, fuer MPPT → Pi | 1 | ~34 EUR | Solar-Daten (PV-Leistung, Ladezustand, Tagesertrag) kabelgebunden |
 
-> Der SmartShunt **ersetzt den INA226 komplett** und ist in jeder Hinsicht ueberlegen:
-> kalibriert ab Werk, integrierter 500A-Shunt, automatische Drift-Korrektur,
-> historische Zaehler, VictronConnect App, kein eigener Code fuer SoC noetig.
-
 **Einbau im Akku-Minuspfad:**
 
 ```
-  Solar ──▶ Victron MPPT 100/20 ──┐
+  Solar ──▶ Victron MPPT 75/15 ──┐
             (VE.Direct → USB      │
              → Pi /dev/victron-mppt) │
                                    ▼
-  Akku (+) ────────────────────────────── Systemlast (DC-DC → Pi 5)
+  Akku (+) ────────────────────────────── Systemlast (Witty Pi 5 HAT+ → Pi 5)
 
   Akku (-) ────── SmartShunt ──────────── System-GND
                   (500A/50mV)
@@ -257,7 +297,7 @@ Shunt-Dimensionierung, fehlende Peukert-Kompensation, kein Anti-Drift-Mechanismu
 │                                                              │
 │  2. AUTOMATISCHE DRIFT-KORREKTUR                            │
 │     SoC wird auf 100% zurueckgesetzt wenn ALLE zutreffen:   │
-│     - Spannung > "Charged Voltage" (z.B. 28.8V)            │
+│     - Spannung > "Charged Voltage" (z.B. 14.4V)            │
 │     - Strom < "Tail Current" (z.B. 4A = 4% von 100Ah)      │
 │     - Bedingung haelt > 3 Minuten an                        │
 │     → Passiert taeglich bei Sonnenschein automatisch!        │
@@ -270,10 +310,10 @@ Shunt-Dimensionierung, fehlende Peukert-Kompensation, kein Anti-Drift-Mechanismu
 
 **Konfiguration (einmalig via VictronConnect App):**
 
-| Parameter | Wert fuer 24V 100Ah LiFePO4 |
+| Parameter | Wert fuer 12V 100Ah LiFePO4 |
 |-----------|----------------------------|
 | Batteriekapazitaet | 100 Ah |
-| Charged Voltage | 28.8 V |
+| Charged Voltage | 14.4 V |
 | Tail Current | 4.0% (= 4A) |
 | Charged Detection Time | 3 min |
 | Peukert-Exponent | 1.05 |
@@ -311,25 +351,25 @@ ve.read_data_callback(handle_data)
 | Normal | >30% | Normalbetrieb |
 | Warnung | 20% | SmartShunt Alarm-Relay; Pi sendet "LOW_BATTERY" an Cloud |
 | Alarm | 10% | Pi stoppt Aufnahmen, nur noch Statusmeldungen |
-| Abschaltung | ~0% | BMS trennt Last automatisch; Witty Pi RTC wartet auf Solarladung |
+| Abschaltung | ~0% | BMS trennt Last automatisch; Witty Pi 5 RTC wartet auf Solarladung |
 
 **Telemetrie-Ausgabe (stuendlich via Sixfab LTE):**
 
 ```json
 {
-  "battery_v": 26.1,
-  "battery_soc": 52.0,
-  "current_a": -0.32,
-  "power_w": 8.35,
-  "consumed_ah": 48.0,
-  "ttg_min": 2280,
-  "days_remaining": 38
+  "battery_v": 13.1,
+  "battery_soc": 72.0,
+  "current_a": -0.45,
+  "power_w": 5.9,
+  "consumed_ah": 28.0,
+  "ttg_min": 1200,
+  "days_remaining": 18
 }
 ```
 
 **MPPT-Daten via VE.Direct (zweites USB-Kabel):**
 
-Der Victron SmartSolar MPPT 100/20 wird mit einem eigenen VE.Direct-to-USB Kabel
+Der Victron SmartSolar MPPT 75/15 wird mit einem eigenen VE.Direct-to-USB Kabel
 an den Pi angeschlossen → `/dev/ttyUSB1`. Stabile udev-Regeln fuer Port-Zuordnung:
 
 ```bash
@@ -364,7 +404,7 @@ ve_mppt.read_data_callback(handle_mppt)
 **Entscheidung: Kabelgebunden statt Bluetooth**
 
 Beide Victron-Geraete (SmartShunt + MPPT) haben Bluetooth (BLE), das theoretisch
-die VE.Direct-Kabel ersetzen koennte. Fuer BUGSY wird bewusst auf BLE verzichtet:
+die VE.Direct-Kabel ersetzen koennte. Fuer BUGSI wird bewusst auf BLE verzichtet:
 
 | | Kabelgebunden (VE.Direct USB) | Bluetooth (BLE) |
 |---|---|---|
@@ -396,7 +436,7 @@ die VE.Direct-Kabel ersetzen koennte. Fuer BUGSY wird bewusst auf BLE verzichtet
 | LTE-Antennen (MIMO) | 2x SMA Pigtail (im Kit enthalten) | 1 Set | inkl. | MIMO fuer besseren Durchsatz und Empfang |
 | SIM-Karte (IoT-Tarif) | z.B. 1NCE (~10 EUR/500MB/10J) oder Telekom IoT | 1 | ~10 EUR | **Eigene SIM → provider-unabhaengig** |
 
-**Link:** https://www.amazon.de/Raspberry-Modem-Kit-Cloud-Software-Fernbedienung-Netzwerk%C3%BCberwachung/dp/B089X8N2TY/ref=sr_1_1?__mk_de_DE=%C3%85M%C3%85%C5%BD%C3%95%C3%91&crid=1P5531WAY6E50&dib=eyJ2IjoiMSJ9._yGmVv59TbeSn4IEGjq0oyyu2Fxd-yVebB6TgeDC-RjGjHj071QN20LucGBJIEps.OkDIVanGHfM8By4zWEUutfzuAEoeVLkPYLOEsxt72eU&dib_tag=se&keywords=sixfab+4g&qid=1772717255&sprefix=sixfab+4g%2Caps%2C197&sr=8-1 
+**Link:** https://www.amazon.de/Raspberry-Modem-Kit-Cloud-Software-Fernbedienung-Netzwerk%C3%BCberwachung/dp/B089X8N2TY/ref=sr_1_1?__mk_de_DE=%C3%85M%C3%85%C5%BD%C3%95%C3%91&crid=1P5531WAY6E50&dib=eyJ2IjoiMSJ9._yGmVv59TbeSn4IEGjq0oyyu2Fxd-yVebB6TgeDC-RjGjHj071QN20LucGBJIEps.OkDIVanGHfM8By4zWEUutfzuAEoeVLkPYLOEsxt72eU&dib_tag=se&keywords=sixfab+4g&qid=1772717255&sprefix=sixfab+4g%2Caps%2C197&sr=8-1
 
 **Sixfab + EG25-G - Eckdaten:**
 
@@ -437,7 +477,7 @@ die VE.Direct-Kabel ersetzen koennte. Fuer BUGSY wird bewusst auf BLE verzichtet
    └──────────────────────────┘
 ```
 
-> **Betriebsmodus fuer BUGSY:** Das LTE-Modem ist die meiste Zeit **komplett aus** (GPIO16 HIGH, 0 mA).
+> **Betriebsmodus fuer BUGSI:** Das LTE-Modem ist die meiste Zeit **komplett aus** (GPIO16 HIGH, 0 mA).
 > Stuendlich wird es eingeschaltet (GPIO16 LOW), sendet gesammelte Daten, und wird wieder abgeschaltet.
 > Dadurch entsteht kein Idle-Verbrauch — anders als bei Always-On-Modems.
 
@@ -491,7 +531,7 @@ import time
 import httpx
 
 MODEM_PWR_PIN = 16  # GPIO16 = Sixfab PWR_DSBLE_P
-API_URL = "https://api.eigener-server.de/bugsy"
+API_URL = "https://api.eigener-server.de/bugsi"
 
 def modem_on():
     """Schaltet LTE-Modem ein (GPIO16 LOW)."""
@@ -555,7 +595,7 @@ SONOFF SNZB-02WD          SONOFF ZBDongle-E            Raspberry Pi 5
                     │
         ┌───────────▼───────────┐
         │   zigpy + bellows     │    Python-Bibliothek
-        │   (im bugsy-daemon)   │    (kein separater Service)
+        │   (im bugsi-daemon)   │    (kein separater Service)
         │                       │
         │   → Direkte Zigbee-   │    Kein Node.js noetig
         │     Kommunikation     │    Kein Mosquitto noetig
@@ -580,24 +620,37 @@ SONOFF SNZB-02WD          SONOFF ZBDongle-E            Raspberry Pi 5
 | Komponente | Spezifikation | Stueck | Preis/Stueck | Begruendung |
 |-----------|--------------|--------|-------------|-------------|
 | IP65 Anschlusskasten (Elektronik) | ~250 x 200 x 120 mm, ABS/PC, UV-stabil | 1 | ~35 EUR | Elektronik-Gehaeuse (Pi, Sixfab HAT, Laderegler) |
-| **IP65 Akku-Box (Boden)** | ~60 x 25 x 25 cm, Kunststoff, UV-stabil | 1 | ~40 EUR | Separates Gehaeuse fuer 24V 100Ah Akku am Boden |
+| **IP65 Akku-Box (Boden)** | ~40 x 20 x 25 cm, Kunststoff, UV-stabil | 1 | ~30 EUR | Separates Gehaeuse fuer 12V 100Ah Akku am Boden |
 | Kabelverschraubungen | M16/M20, IP68 | 8 | ~2 EUR | Kabel-Durchfuehrungen (beide Boxen) |
-| Kamera-Gehaeuse | Kleines IP65 Gehaeuse mit Glasfenster | 1 | ~15 EUR | Schutz fuer beide CSI-Kameras |
+| Kamera-Gehaeuse | Kleines IP65 Gehaeuse mit Glasfenster | 1 | ~15 EUR | Schutz fuer IDS-Kamera + Arducam |
 | Aluminium-Pfosten | 40x40mm, 1.5m, Vierkantrohr | 2 | ~15 EUR | Hauptstruktur |
 | Querstrebe | Aluminium, 60cm | 1 | ~8 EUR | Verbindung Pfosten, Montage Elektronikbox |
 | Pfostenhuelsen | Einschlag- oder Einschraub-Bodenhuelsen | 2 | ~10 EUR | Stabile Befestigung im Boden |
 | Kontrastschirm | Weisses HPL oder PVC-Platte, 60x60cm, UV-stabil | 1 | ~20 EUR | Einheitlicher Hintergrund |
 | Montage-Kleinteile | Schellen, Winkel, Schrauben, Edelstahl | 1 | ~15 EUR | Befestigung |
 | Kabelkanal | UV-stabiler Wellschlauch | 3m | ~8 EUR | Kabelschutz (Pfosten + Boden-Akku) |
-| Wetterfeste Steckverbinder | z.B. MC4 oder IP68 Rundstecker, 24V | 1 Set | ~10 EUR | Trennbare Verbindung Akku-Box ↔ Elektronik-Box |
+| Wetterfeste Steckverbinder | z.B. MC4 oder IP68 Rundstecker, 12V | 1 Set | ~10 EUR | Trennbare Verbindung Akku-Box ↔ Elektronik-Box |
 
 ### 2.8 Sonstiges
 
 | Komponente | Spezifikation | Stueck | Preis/Stueck | Begruendung |
 |-----------|--------------|--------|-------------|-------------|
+| **USB 2.0 Hub (kompakt)** | 4-Port, passiv | 1 | ~8 EUR | Fuer 2x VE.Direct-to-USB Kabel (SmartShunt + MPPT) |
 | Kabel und Stecker | Diverse (USB-C, JST, Schraubklemmen) | 1 Set | ~20 EUR | Interne Verdrahtung |
-| USB-C Kabel (kurz, gewinkelt) | 15cm | 1 | ~5 EUR | DC-DC Wandler zu Pi |
 | GPIO-Kabel | Dupont-Kabel Set | 1 | ~5 EUR | Sensor-Anschluss |
+
+**USB-Port-Belegung am Pi 5:**
+
+| Port | Geraet | Begruendung |
+|------|--------|-------------|
+| USB 3.0 #1 | IDS uEye XLS-E (Event-Kamera) | Braucht USB3-Bandbreite fuer Event-Daten |
+| USB 3.0 #2 | USB-Stick 64GB (Datenspeicher) | Schnelle Schreibgeschwindigkeit |
+| USB 2.0 #1 | ZBDongle-E (via Verlaengerungskabel) | Zigbee, nur geringe Bandbreite |
+| USB 2.0 #2 | USB 2.0 Hub → 2x VE.Direct-to-USB | SmartShunt + MPPT, je 19200 Baud |
+
+> **Alle 4 USB-Ports des Pi 5 sind belegt.** Die zwei VE.Direct-Kabel teilen sich
+> einen USB 2.0 Port ueber einen kleinen Hub (seriell, 19200 Baud → keine Bandbreitenprobleme).
+> Der Sixfab Base HAT nutzt intern den Mini-PCIe-Slot (kein USB-Port belegt).
 
 ---
 
@@ -608,45 +661,42 @@ SONOFF SNZB-02WD          SONOFF ZBDongle-E            Raspberry Pi 5
 | Kategorie | Kosten/Stueck |
 |-----------|--------------|
 | Rechenplattform (Pi 5 + Speicher) | 112 EUR |
-| Kamerasystem (GenX320 + 64MP) | 380 EUR |
-| Energieversorgung (2x Solar + Akku 24V/100Ah + MPPT + DC-DC + Witty Pi) | 696 EUR |
+| Kamerasystem (IDS XLS-E + Objektiv + 64MP) | 595 EUR |
+| Energieversorgung (1x Solar + Akku 12V/100Ah + MPPT + Witty Pi 5 HAT+) | 359 EUR |
 | Batterie-Monitoring (SmartShunt + 2x VE.Direct USB Kabel) | 176 EUR |
 | Konnektivitaet (Sixfab Base HAT + EG25-G + SIM) | 125 EUR |
 | Sensorik (Zigbee Dongle + Sensor) | 43 EUR |
-| Gehaeuse und Mechanik | 176 EUR |
-| Kabel und Sonstiges | 30 EUR |
-| **Gesamt pro Stueck** | **~1.732 EUR** |
+| Gehaeuse und Mechanik | 166 EUR |
+| Kabel und Sonstiges (inkl. USB Hub) | 33 EUR |
+| **Gesamt pro Stueck** | **~1.609 EUR** |
 
 ### 3.2 Projektkosten Phase 1 (3 Prototypen)
 
 | Position | Kosten |
 |----------|--------|
-| 3x Prototyp-Geraete | 5.196 EUR |
-| Ersatzteile und Backup-Komponenten | 150 EUR |
-| Versand | 80 EUR |
-| **Gesamt Phase 1** | **~5.426 EUR** |
+| 3x Prototyp-Geraete | 4.827 EUR |
+| Ersatzteile und Backup-Komponenten | 100 EUR |
+| Versand | 70 EUR |
+| **Gesamt Phase 1** | **~4.997 EUR** |
 | **Budget** | **5.000 EUR** |
-| **Ueberschreitung** | **~426 EUR** |
+| **Reserve** | **~3 EUR** |
 
-> **Budget wird um ~426 EUR ueberschritten.** Massnahmen zur Einhaltung:
-> - 1 statt 2 Solarpanels pro Geraet (im Sommer ausreichend): **-150 EUR** (3x = -450 EUR)
-> - Guenstigeres Akku-Modell (Timeusb statt LiTime): **-30 EUR** (3x = -90 EUR)
-> - SmartShunt nur fuer Prototyp 1, Prototypen 2+3 nutzen BMS-UART: **-216 EUR**
-> - **Empfehlung:** 1 Panel pro Geraet reicht im Sommer → Budget passt (-450 EUR, noch 24 EUR Reserve)
+> **Budget wird eingehalten.** Die Umstellung auf 12V und 1 Panel spart erheblich
+> gegenueber der 24V/2-Panel-Variante (~123 EUR/Stueck). Der Mehrpreis der IDS-Kamera
+> gegenueber dem GenX320 (~200 EUR) wird durch die Energie-Einsparungen kompensiert.
 
 ### 3.3 Zielkosten Pilot (1.000 EUR/Stueck)
 
 | Massnahme | Einsparung |
 |-----------|-----------|
-| Pi CM4 (2GB) + Custom Carrier Board (2x CSI nativ) | -30 EUR |
-| GenX320 OEM-Preis bei 10+ Stueck | -100 EUR (geschaetzt) |
-| Kleinerer Akku (24V 50Ah, reicht bei Solar) | -200 EUR |
-| 1x Solarpanel statt 2x | -50 EUR |
+| Pi CM4 (2GB) + Custom Carrier Board (CSI + USB3) | -30 EUR |
+| IDS OEM-Preis bei 10+ Stueck | -150 EUR (geschaetzt) |
+| Kleinerer Akku (12V 50Ah, reicht bei Solar) | -100 EUR |
 | Mengenrabatt | -50 EUR |
 | EG25-G direkt auf Custom Board (kein Sixfab HAT) | -45 EUR |
-| **Reduzierte Stueckkosten** | **~1.112 EUR** |
+| **Reduzierte Stueckkosten** | **~1.234 EUR** |
 
-> Knapp ueber 1.000 EUR Ziel. Fuer Serie: GenX320-Chip (~$10) + EG25-G on-board + eigenes PCB
+> Noch ueber 1.000 EUR Ziel. Fuer Serie: IMX636-Chip auf eigenem PCB + EG25-G on-board
 > → Ziel ~500 EUR/Stueck realistisch.
 
 ---
@@ -658,33 +708,30 @@ SONOFF SNZB-02WD          SONOFF ZBDongle-E            Raspberry Pi 5
 │                      ELEKTRONIK-BOX (IP65, pfostenmontiert)      │
 │                                                                  │
 │  ┌────────────┐    ┌───────────┐    ┌─────────────────────┐     │
-│  │ 2x Solar   │───▶│ Victron   │───▶│  ← 24V von         │     │
-│  │ 50W Serie  │    │ SmartSolar│    │    Akku-Box (Boden) │     │
-│  │ (~44V Voc) │    │ 100/20    │    └──────────┬──────────┘     │
-│  └────────────┘    └───────────┘               │ 24V            │
+│  │ 1x Solar   │───▶│ Victron   │───▶│  ← 12V von         │     │
+│  │ 50W        │    │ SmartSolar│    │    Akku-Box (Boden) │     │
+│  │ (~22V Voc) │    │ 75/15     │    └──────────┬──────────┘     │
+│  └────────────┘    └───────────┘               │ 12V            │
 │                                     ┌──────────▼──────────┐     │
-│                                     │  Witty Pi 4 Mini    │     │
-│                                     │  (Power Mgmt + RTC) │     │
+│                                     │  Witty Pi 5 HAT+    │     │
+│                                     │  (Power Mgmt + RTC  │     │
+│                                     │   + DC/DC 12V→5V)   │     │
 │                                     └──────────┬──────────┘     │
-│                                                │                │
+│                                                │ 5V via GPIO    │
 │                                     ┌──────────▼──────────┐     │
-│                                     │  DC-DC 24V → 5V     │     │
-│                                     │  (Step-Down, 5A)    │     │
-│                                     └──────────┬──────────┘     │
-│                                                │ USB-C          │
-│  ┌────────────┐   CAM0 (CSI-2)     ┌──────────▼──────────┐     │
-│  │  GenX320   │◀───────────────────▶│                     │     │
-│  │  Event-Cam │                     │   Raspberry Pi 5    │     │
-│  └────────────┘                     │     (4GB RAM)       │     │
-│                                     │                     │     │
-│  ┌────────────┐   CAM1 (CSI-2)     │   ┌─────┐ ┌─────┐  │     │
-│  │  64MP      │◀───────────────────▶│   │SD   │ │USB  │  │     │
-│  │  Arducam   │                     │   │Card │ │Stick│  │     │
-│  └────────────┘                     │   └─────┘ └─────┘  │     │
-│                                     │                     │     │
+│  ┌────────────┐   USB 3.0           │                     │     │
+│  │  IDS uEye  │◀───────────────────▶│                     │     │
+│  │  XLS-E     │                     │   Raspberry Pi 5    │     │
+│  │  Event-Cam │                     │     (4GB RAM)       │     │
+│  └────────────┘                     │                     │     │
+│                                     │   ┌─────┐ ┌─────┐  │     │
+│  ┌────────────┐   CAM1 (CSI-2)     │   │SD   │ │USB  │  │     │
+│  │  64MP      │◀───────────────────▶│   │Card │ │Stick│  │     │
+│  │  Arducam   │                     │   └─────┘ └─────┘  │     │
+│  └────────────┘                     │                     │     │
 │                                     └──┬────┬────┬────┬──┘     │
 │                                        │    │    │    │         │
-│  ┌────────────┐   USB (via Ext.)      │    │    │    │         │
+│  ┌────────────┐   USB (via Hub)        │    │    │    │         │
 │  │  Zigbee    │◀──────────────────────┘    │    │    │         │
 │  │  ZBDongle-E│                            │    │    │         │
 │  └────────────┘                            │    │    │         │
@@ -698,22 +745,22 @@ SONOFF SNZB-02WD          SONOFF ZBDongle-E            Raspberry Pi 5
 │  └────────────┘                 └──────┬──────┘│    │         │
 │                                        │       │    │         │
 │                                                │    │         │
-│  ┌──────────────────┐  VE.Direct-to-USB        │    │         │
+│  ┌──────────────────┐  VE.Direct (via USB Hub)  │    │         │
 │  │ Victron SmartShunt│◀────────────────────────┘    │         │
-│  │ 500A/50mV        │  (/dev/ttyUSB0)              │         │
-│  │ (im Akku-Minus)  │                              │         │
-│  └──────────────────┘                              │         │
-│                                         ┌──────▼────┐         │
-│                                         │LTE Antenne│         │
-│                                         └───────────┘         │
+│  │ 500A/50mV        │  (/dev/victron-shunt)         │         │
+│  │ (im Akku-Minus)  │                               │         │
+│  └──────────────────┘                               │         │
+│                                          ┌──────▼────┐         │
+│                                          │LTE Antenne│         │
+│                                          └───────────┘         │
 └──────────────────────────────────────────────────────┘         │
                                                                   │
   ┌──────────────────────┐                                       │
-  │    AKKU-BOX          │  24V Kabel (wetterfeste Stecker)      │
+  │    AKKU-BOX          │  12V Kabel (wetterfeste Stecker)      │
   │    (IP65, am Boden)  │◀──────────────────────────────────────┘
   │                      │
-  │  LiFePO4 24V 100Ah  │
-  │  ~20 kg              │
+  │  LiFePO4 12V 100Ah  │
+  │  ~13 kg              │
   └──────────────────────┘
 
                     ┌────────────────────────────────────┐
@@ -744,7 +791,7 @@ wuerde folgende Nachteile bringen:
 - **Mehr Fehlermodi:** Broker-Absturz = alles steht (Single Point of Failure wie monolithisch, aber mit Extra-Schichten)
 - **Kein echter Entkopplungsvorteil:** Wenn der Pi abstuerzt, gehen alle Services gleichzeitig runter
 
-**Stattdessen:** Ein monolithischer Python-Prozess (`bugsy-daemon`) als einziger systemd-Service.
+**Stattdessen:** Ein monolithischer Python-Prozess (`bugsi-daemon`) als einziger systemd-Service.
 Direkte Funktionsaufrufe statt IPC. Zigbee direkt via `zigpy`/`bellows` (kein Node.js).
 Cloud-Upload via HTTPS POST (kein MQTT-Broker noetig).
 
@@ -758,12 +805,13 @@ Cloud-Upload via HTTPS POST (kein MQTT-Broker noetig).
 │                    Raspberry Pi 5                          │
 │                                                            │
 │  ┌────────────────────────────────────────────────────┐    │
-│  │          bugsy-daemon (ein Python-Prozess)         │    │
+│  │          bugsi-daemon (ein Python-Prozess)         │    │
 │  │          systemd Service (Restart=always)          │    │
 │  │                                                    │    │
 │  │  ┌─────────────────────────────────────────────┐   │    │
 │  │  │  Event-Erkennung (Thread)                   │   │    │
-│  │  │  OpenEB + GenX320 Event-Stream (CAM0)       │   │    │
+│  │  │  IDS peak + Metavision SDK (USB3)           │   │    │
+│  │  │  → IDS uEye XLS-E Event-Stream              │   │    │
 │  │  │  → Clustering → Trigger-Logik               │   │    │
 │  │  └──────────────┬──────────────────────────────┘   │    │
 │  │                 │ Trigger (direkter Funktionsaufruf)│    │
@@ -800,7 +848,8 @@ Cloud-Upload via HTTPS POST (kein MQTT-Broker noetig).
 │                                                            │
 │  ┌────────────────────────────────────────────────────┐    │
 │  │  Raspberry Pi OS Lite (64-bit)                     │    │
-│  │  + Python 3 + OpenEB + libcamera/Picamera2         │    │
+│  │  + Python 3 + IDS peak + Metavision SDK             │    │
+│  │  + libcamera/Picamera2 (fuer Arducam 64MP)         │    │
 │  │  + zigpy + bellows (Zigbee direkt)                 │    │
 │  │  + httpx + qmicli (LTE Upload)                     │    │
 │  └────────────────────────────────────────────────────┘    │
@@ -811,17 +860,17 @@ Cloud-Upload via HTTPS POST (kein MQTT-Broker noetig).
 
 ```
 ┌──────────────┐
-│  GenX320     │    Asynchroner Event-Stream (CAM0)
-│  Event-Cam   │    (nur bei Pixel-Aenderung)
-│  320x320     │
-│  <50 mW      │
+│  IDS uEye    │    Asynchroner Event-Stream (USB 3.0)
+│  XLS-E       │    (nur bei Pixel-Aenderung)
+│  1280x720    │
+│  0.4-2 W     │
 └──────┬───────┘
        │ Events (x, y, timestamp, polarity)
        ▼
 ┌──────────────┐
-│  OpenEB      │    Event-Clustering + Filterung
-│  Pipeline    │    - Rausch-Events filtern (AFK)
-│              │    - Raeumliche Cluster bilden
+│  Metavision  │    Event-Clustering + Filterung
+│  SDK         │    - Rausch-Events filtern (AFK)
+│  Pipeline    │    - Raeumliche Cluster bilden
 │              │    - Cluster-Groesse pruefen (5-60mm)
 └──────┬───────┘
        │ Cluster erkannt → Insekt-Kandidat
@@ -857,23 +906,23 @@ Cloud-Upload via HTTPS POST (kein MQTT-Broker noetig).
 
 | Komponente | Gewicht |
 |-----------|---------|
-| Solarpanels 2x 50W | ~5.0 kg |
+| Solarpanel 1x 50W | ~2.5 kg |
 | Elektronikbox (Gehaeuse + Pi + Sixfab HAT + Kameras + MPPT) | ~2.0 kg |
 | Kontrastschirm (PVC/HPL) | ~1.0 kg |
 | Aluminium-Pfosten (2x) | ~2.0 kg |
 | Querstrebe + Montage | ~1.0 kg |
 | Kabel + Sonstiges | ~0.5 kg |
-| **Pfosten-Gesamt** | **~11.5 kg** |
+| **Pfosten-Gesamt** | **~9.0 kg** |
 
 ### Boden-Komponenten
 
 | Komponente | Gewicht |
 |-----------|---------|
-| LiFePO4 Akku 24V 100Ah | ~21 kg |
-| Akku-Box (Gehaeuse) | ~2 kg |
-| **Boden-Gesamt** | **~23 kg** |
+| LiFePO4 Akku 12V 100Ah | ~13 kg |
+| Akku-Box (Gehaeuse) | ~1.5 kg |
+| **Boden-Gesamt** | **~14.5 kg** |
 
-### Transport-Gesamt: ~34.5 kg (in 2 Teilen transportierbar)
+### Transport-Gesamt: ~23.5 kg (in 2 Teilen transportierbar)
 
 ---
 
@@ -882,9 +931,9 @@ Cloud-Upload via HTTPS POST (kein MQTT-Broker noetig).
 | Element | Abmessungen |
 |---------|------------|
 | Elektronikbox | 25 x 20 x 12 cm |
-| Akku-Box | 60 x 25 x 25 cm |
+| Akku-Box | 40 x 20 x 25 cm |
 | Kontrastschirm | 60 x 60 cm |
-| Solarpanels (2x) | je 70 x 55 x 3 cm |
+| Solarpanel (1x) | 70 x 55 x 3 cm |
 | Pfosten (ueber Boden) | 40 x 40 mm, ~120 cm |
 | Pfostenabstand | ~70 cm |
 | Gesamthoehe (ueber Boden) | ~150 cm |
@@ -895,12 +944,13 @@ Cloud-Upload via HTTPS POST (kein MQTT-Broker noetig).
 
 | Quelle | Komponenten |
 |--------|------------|
-| **Sixfab** (sixfab.com) | 4G/LTE Modem Kit (Base HAT + EG25-G + Antennen) |
-| **Prophesee** (prophesee.ai) | GenX320 Starter Kit fuer RPi 5 |
+| **IDS Imaging** (ids-imaging.com) | uEye XLS-E (UE-39B1XLS-E) + S-Mount Objektiv |
 | **BerryBase.de** | Pi 5, Kabel |
 | **Welectron.com / Amazon.de** | Arducam 64MP Hawkeye |
-| **Amazon.de** | LiFePO4 24V 100Ah (LiTime/Redodo ~440 EUR), SONOFF ZBDongle-E, SONOFF SNZB-02WD, DC-DC Wandler, Gehaeuse |
-| **Offgridtec.com / Amazon.de** | Victron SmartSolar 100/20, Solarpanels |
+| **UUGear** (uugear.com) / **Adafruit** | Witty Pi 5 HAT+ |
+| **Sixfab** (sixfab.com) | 4G/LTE Modem Kit (Base HAT + EG25-G + Antennen) |
+| **Amazon.de** | LiFePO4 12V 100Ah (~220 EUR), SONOFF ZBDongle-E, SONOFF SNZB-02WD, USB Hub, Gehaeuse |
+| **Offgridtec.com / Amazon.de** | Victron SmartSolar 75/15, Solarpanel |
 | **Offgridtec.com / SVB24.com** | Victron SmartShunt 500A/50mV, VE.Direct-to-USB Kabel |
 | **Reichelt.de / Conrad.de** | Kabelverschraubungen, Klemmen, Kleinteile |
 | **Baumarkt** | Alu-Pfosten, Bodenhuelsen, PVC-Platte, Montagematerial |
@@ -911,12 +961,12 @@ Cloud-Upload via HTTPS POST (kein MQTT-Broker noetig).
 
 | Risiko | Wahrsch. | Auswirkung | Massnahme |
 |--------|----------|------------|-----------|
-| GenX320 nicht lieferbar / zu teuer | Mittel | Hoch | Fallback: iniVation DVXplorer Lite (1.900 EUR, USB) oder OpenCV Frame-Diff |
+| IDS Kamera nicht lieferbar / zu teuer | Niedrig | Hoch | Fallback: IDS uEye XCP-E (gehauste Variante) oder Prophesee GenX320 Starter Kit (CSI-2, ~300 EUR) |
 | Sixfab Modem-Boot zu langsam (>30 Sek) | Niedrig | Niedrig | Upload-Intervall vergroessern; Modem laenger eingeschaltet lassen |
 | LTE-Empfang im Feld schlecht | Mittel | Mittel | Externe SMA-Antenne mit Verlaengerung; SIM-Karte eines anderen Anbieters testen |
 | SIM-Datenvolumen aufgebraucht | Niedrig | Mittel | 1NCE 500MB reicht ~11 Monate; Monitoring via Telemetrie; Thumbnails nur bei Bedarf |
 | Zigbee-Interferenz mit Pi 5 USB 3.0 | Mittel | Niedrig | USB-Verlaengerungskabel (15-20cm) als Abstandshalter |
-| 24V Akku zu schwer fuer Transport | Niedrig | Niedrig | Zweiteiliger Aufbau (Pfosten + Bodenbox); Sackkarre fuer Transport |
+| USB-Port-Engpass (4 Ports, 5 Geraete) | Niedrig | Niedrig | USB 2.0 Hub fuer VE.Direct-Kabel; bei Bedarf powered Hub |
 | Kondenswasser in Kamerabox | Mittel | Hoch | Silica-Gel; Membranfilter-Belueftung |
 | USB-Stick Korruption | Niedrig | Hoch | ext4 Journaling; Write-Ahead-Log; regelmaessige fsck |
 
@@ -924,22 +974,25 @@ Cloud-Upload via HTTPS POST (kein MQTT-Broker noetig).
 
 ## 10. EMPFOHLENE NAECHSTE SCHRITTE
 
-1. **Sofort:** GenX320 Starter Kit bei Prophesee anfragen (Preis + Lieferzeit)
+1. **Sofort:** IDS uEye XLS-E (UE-39B1XLS-E) bei IDS Imaging anfragen (Preis + Lieferzeit + SDK-Zugang)
 2. **Sofort:** Sixfab 4G/LTE Modem Kit bestellen (sixfab.com) + IoT SIM-Karte (z.B. 1NCE)
-3. **Parallel:** Pi 5, Arducam 64MP, SONOFF Zigbee-Komponenten bestellen
-4. **Woche 1-2:** Laborprototyp am Tisch:
-   - Pi 5 + GenX320 (CAM0) + 64MP (CAM1) gleichzeitig testen
+3. **Sofort:** Witty Pi 5 HAT+ bestellen (uugear.com oder Adafruit)
+4. **Parallel:** Pi 5, Arducam 64MP, SONOFF Zigbee-Komponenten bestellen
+5. **Woche 1-2:** Laborprototyp am Tisch:
+   - Pi 5 + IDS XLS-E (USB3) + 64MP Arducam (CSI-2) gleichzeitig testen
+   - IDS peak SDK + Metavision SDK installieren und Event-Stream verifizieren
+   - Witty Pi 5 HAT+ mit 12V-Quelle testen (Power-Scheduling, RTC)
    - Sixfab HAT: GPIO16 Power Control, QMI-Anbindung, HTTPS Upload testen
    - Tailscale/SSH ueber Sixfab LTE testen
    - zigpy/bellows + SNZB-02WD: Sensor-Datenempfang testen (direkt, ohne Zigbee2MQTT)
-5. **Woche 2-3:** Trigger-Logik: Event-Clustering → 64MP Aufnahme → Thumbnail → LTE Upload
-6. **Woche 3-4:** Remote-Konfiguration via HTTPS Polling, OTA-Update-Mechanismus
-7. **Woche 4-5:** Gehaeusebau, 24V Stromversorgung integrieren, Feldtest
-8. **Woche 5-8:** Iteration, 2 weitere Prototypen
+6. **Woche 2-3:** Trigger-Logik: Event-Clustering → 64MP Aufnahme → Thumbnail → LTE Upload
+7. **Woche 3-4:** Remote-Konfiguration via HTTPS Polling, OTA-Update-Mechanismus
+8. **Woche 4-5:** Gehaeusebau, 12V Stromversorgung integrieren, Feldtest
+9. **Woche 5-8:** Iteration, 2 weitere Prototypen
 
-> **Kritischer Pfad:** GenX320 Starter Kit Verfuegbarkeit.
-> Parallel-Strategie: Prototyp 1 kann mit OpenCV Frame-Diff starten (ohne GenX320),
-> GenX320 als Upgrade in Prototyp 2/3.
+> **Kritischer Pfad:** IDS uEye XLS-E Verfuegbarkeit und SDK-Kompatibilitaet mit Pi 5.
+> Parallel-Strategie: Prototyp 1 kann mit OpenCV Frame-Diff starten (ohne Event-Kamera),
+> IDS-Kamera als Upgrade sobald verfuegbar.
 
 ---
 
@@ -947,9 +1000,9 @@ Cloud-Upload via HTTPS POST (kein MQTT-Broker noetig).
 
 | Phase | Plattform | Trigger | Aufnahme | Akku | Konnektivitaet | Stueckkosten |
 |-------|-----------|---------|----------|------|----------------|-------------|
-| **Prototyp** | Pi 5 (Dual-CSI) | GenX320 | 64MP Arducam | 24V 100Ah | Sixfab EG25-G | ~1.732 EUR |
-| **Pilot** | CM4 + Custom Board | GenX320 | 12MP Pi Cam 3 | 24V 50Ah | EG25-G direkt | ~1.100 EUR |
-| **Serie** | Custom SoM | GenX320 on-board | OEM 12MP | 24V 30Ah | Quectel EG25-G OEM | ~500 EUR (Ziel) |
+| **Prototyp** | Pi 5 (USB3 + CSI) | IDS XLS-E (IMX636) | 64MP Arducam | 12V 100Ah | Sixfab EG25-G | ~1.609 EUR |
+| **Pilot** | CM4 + Custom Board | IDS XLS-E | 12MP Pi Cam 3 | 12V 50Ah | EG25-G direkt | ~1.234 EUR |
+| **Serie** | Custom SoM | IMX636 on-board | OEM 12MP | 12V 30Ah | Quectel EG25-G OEM | ~500 EUR (Ziel) |
 
 ---
 
@@ -965,4 +1018,5 @@ Cloud-Upload via HTTPS POST (kein MQTT-Broker noetig).
 | 0.4.0 | 2026-03-04 | INA226 ersetzt durch Victron SmartShunt 500A/50mV (produktionsreifer SoC); VE.Direct-to-USB Anbindung |
 | 0.4.1 | 2026-03-05 | Bluetooth vermieden: MPPT via zweites VE.Direct-USB-Kabel statt BLE; Wired-vs-BLE Vergleich |
 | 0.5.0 | 2026-03-05 | Blues Notecard ersetzt durch Sixfab 4G/LTE Kit (Quectel EG25-G); eigene SIM; GPIO16 HW-Abschaltung (0 mA); volle IP (SSH/Tailscale direkt); kein zweiter LTE-Dongle noetig; Kosten 1.732 EUR/Stueck |
-| **0.6.0** | **2026-03-05** | **Monolithische Architektur: MQTT/Mosquitto/Zigbee2MQTT/Node.js entfernt; ein Python-Prozess (bugsy-daemon); Zigbee direkt via zigpy/bellows; Cloud-Upload via HTTPS statt MQTT; ~150 MB RAM gespart; weniger Fehlermodi** |
+| 0.6.0 | 2026-03-05 | Monolithische Architektur: MQTT/Mosquitto/Zigbee2MQTT/Node.js entfernt; ein Python-Prozess (bugsi-daemon); Zigbee direkt via zigpy/bellows; Cloud-Upload via HTTPS statt MQTT; ~150 MB RAM gespart; weniger Fehlermodi |
+| **0.7.0** | **2026-03-13** | **12V-System: LiFePO4 12V 100Ah statt 24V (leichter, guenstiger); IDS uEye XLS-E (IMX636, USB3) statt GenX320 (hoehere Aufloesung, industriell); Witty Pi 5 HAT+ mit integriertem DC/DC (kein separater Step-Down); 1x Solarpanel statt 2x; MPPT 75/15 statt 100/20; USB-Port-Belegung dokumentiert; Stueckkosten ~1.609 EUR (Budget eingehalten)** |

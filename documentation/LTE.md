@@ -298,7 +298,7 @@
 
 ---
 
-## Empfehlung fuer BUGSY
+## Empfehlung fuer BUGSI
 
 ### Primaerer LTE-Kanal (Telemetrie + Thumbnails)
 
@@ -312,7 +312,7 @@
 | Thumbnail Upload | Ja (Cat-4) | Ja (Cat-4) |
 | GNSS | Ja | Ja |
 
-> Fuer BUGSY ist die **Sixfab-Loesung** optimal: GPIO16 schaltet das Modul
+> Fuer BUGSI ist die **Sixfab-Loesung** optimal: GPIO16 schaltet das Modul
 > **hardwareseitig komplett ab** (0 mA). Kein Quiescent-Strom, kein Sleep-Mode-Risiko.
 > Bei stuendlichem Upload: Modul einschalten → Daten senden → Modul ausschalten.
 > Verbrauch nur waehrend der ~2-5 Min Upload-Phase.
@@ -322,7 +322,7 @@
 Falls SSH/Tailscale parallel zum Datenkanal benoetigt wird:
 **Huawei E3372h-320 (~40 EUR)** als guenstiger Always-On USB-Stick (nur bei Bedarf anstecken).
 
-### Nicht empfohlen fuer BUGSY
+### Nicht empfohlen fuer BUGSI
 
 - **Waveshare SIM7080G:** Zu langsam fuer Thumbnail-Upload (~30 KB * 50 Events = 1.5 MB/Tag bei 136 kbps = ~90 Sek, akzeptabel, aber kein SSH moeglich)
 - **Huawei E3372h-320 als Primaerkanal:** Kein Sleep, kein AT-Zugriff, Doppel-NAT, hoher Dauerverbrauch

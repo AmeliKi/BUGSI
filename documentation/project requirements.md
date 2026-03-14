@@ -1,7 +1,7 @@
 ANFORDERUNGSKATALOG
 Autarkes Gerät zur Erkennung und Zählung von Insekten im Feld
 Dokumentstatus
-•	Projektname: BUGSY
+•	Projektname: BUGSI
 •	Version: 0.0.1
 •	Datum: 2026-02-26
 •	Erstellt von: Jan Nordhoff

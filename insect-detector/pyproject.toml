@@ -1,0 +1,21 @@
+[project]
+name = "bugsi-insect-detector"
+version = "0.1.0"
+description = "BUGSI standalone insect detector - Classical CV for Raspberry Pi 5 + Arducam 64MP"
+requires-python = ">=3.9"
+dependencies = [
+    "opencv-python-headless>=4.9.0",
+    "numpy>=1.26.0",
+]
+
+[project.optional-dependencies]
+pi = [
+    "picamera2>=0.3.17",
+]
+dev = [
+    "pytest>=8.3.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

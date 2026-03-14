@@ -1,0 +1,14 @@
+[Unit]
+Description=BUGSI Insect Detector
+After=bugsi-daemon.service
+Wants=bugsi-daemon.service
+
+[Service]
+Type=simple
+User=bugsi
+ExecStart=/opt/bugsi/detector-venv/bin/python /opt/bugsi/insect-detector/detector.py
+Restart=on-failure
+RestartSec=30
+
+[Install]
+WantedBy=multi-user.target
