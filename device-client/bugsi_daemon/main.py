@@ -57,6 +57,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Subsystem to test: cameras, climate, zigbee, lte, power, schedule, sensors, capture, all",
     )
 
+    pair_zb = subparsers.add_parser(
+        "pair-zigbee", help="Pair a new Zigbee sensor", parents=[shared],
+    )
+    pair_zb.add_argument(
+        "--timeout", type=int, default=120,
+        help="Permit-join window in seconds (default: 120)",
+    )
+    pair_zb.add_argument(
+        "--rename", type=str, default=None,
+        help="Rename the first joined device to this friendly name",
+    )
+
     return parser
 
 
@@ -156,6 +168,8 @@ def main() -> None:
         asyncio.run(run_daemon(config, mock))
     elif args.command == "test-hardware":
         asyncio.run(cli.cmd_test_hardware(config, mock, subsystem=args.subsystem))
+    elif args.command == "pair-zigbee":
+        asyncio.run(cli.cmd_pair_zigbee(config, mock, timeout=args.timeout, rename=args.rename))
     elif args.command in commands:
         if not config.is_configured:
             print(

@@ -31,7 +31,7 @@ if ! id -u bugsi &>/dev/null; then
 fi
 
 # Ensure bugsi user has access to camera and GPIO
-for grp in video i2c gpio spi; do
+for grp in video i2c gpio spi dialout; do
     if getent group "$grp" >/dev/null 2>&1; then
         usermod -aG "$grp" bugsi 2>/dev/null || true
     fi
@@ -42,6 +42,7 @@ echo "Creating directories..."
 mkdir -p "${INSTALL_DIR}"
 mkdir -p "${USB_DIR}"
 mkdir -p "${USB_DIR}/backup"
+mkdir -p /var/cache/bugsi
 
 # Create or reuse venv
 if [[ "$FRESH_VENV" == true ]] || [[ ! -d "${VENV_DIR}" ]]; then
@@ -58,6 +59,10 @@ rm -rf "${SCRIPT_DIR}"/*.egg-info
 echo "Installing bugsi-device-client..."
 "${VENV_DIR}/bin/pip" install --no-cache-dir --upgrade pip
 "${VENV_DIR}/bin/pip" install --no-cache-dir "${SCRIPT_DIR}"
+
+# Symlink bugsi CLI to system PATH
+echo "Creating bugsi CLI symlink..."
+ln -sf "${VENV_DIR}/bin/bugsi" /usr/local/bin/bugsi
 
 # Copy config defaults
 echo "Copying default configuration..."
@@ -81,6 +86,7 @@ systemctl enable "${SERVICE_NAME}"
 # Set permissions
 chown -R bugsi:bugsi "${INSTALL_DIR}"
 chown -R bugsi:bugsi "${USB_DIR}"
+chown -R bugsi:bugsi /var/cache/bugsi
 
 echo
 echo "=== Installation complete ==="
@@ -98,4 +104,5 @@ fi
 echo "  Start the daemon:  sudo systemctl start ${SERVICE_NAME}"
 echo "  View logs:         sudo journalctl -u ${SERVICE_NAME} -f"
 echo "  Check status:      sudo systemctl status ${SERVICE_NAME}"
-echo "  Test (mock mode):  ${VENV_DIR}/bin/bugsi telemetry --mock"
+echo "  Test (mock mode):  bugsi telemetry --mock"
+echo "  Test hardware:     bugsi test-hardware all"

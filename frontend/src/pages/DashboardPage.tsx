@@ -73,7 +73,7 @@ export default function DashboardPage() {
       </div>
 
       {newApiKey && (() => {
-        const backendUrl = import.meta.env.VITE_API_URL || window.location.origin
+        const backendUrl = import.meta.env.VITE_PUBLIC_SERVER_URL || `${window.location.hostname}:8000`
         const onboardCmd = `curl -sfH "X-API-Key: ${newApiKey}" ${backendUrl}/api/device-data/onboard | sudo bash`
         return (
           <div className="space-y-3 mb-4">

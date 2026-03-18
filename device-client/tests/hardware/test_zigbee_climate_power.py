@@ -53,3 +53,38 @@ class TestMockClimatePower:
         await climate.initialize()
         assert climate.is_powered()
         assert climate.is_healthy()
+
+    async def test_read_returns_extended_fields(self):
+        climate = MockClimate()
+        await climate.power_on()
+        reading = await climate.read()
+        assert "sensor_battery" in reading
+        assert 0 <= reading["sensor_battery"] <= 100
+        assert "sensor_voltage" in reading
+        assert 2800 <= reading["sensor_voltage"] <= 3200
+        assert "zigbee_linkquality" in reading
+        assert 0 <= reading["zigbee_linkquality"] <= 255
+
+    async def test_get_devices_returns_generic_name(self):
+        climate = MockClimate()
+        await climate.power_on()
+        devices = await climate.get_devices()
+        assert len(devices) == 1
+        assert devices[0]["friendly_name"] == "climate_sensor"
+
+    async def test_pair_zigbee(self):
+        climate = MockClimate()
+        await climate.power_on()
+        callback_data = []
+        joined = await climate.pair_zigbee(
+            timeout=5, on_device_joined=lambda d: callback_data.append(d),
+        )
+        assert len(joined) == 1
+        assert joined[0]["ieee_address"] == "0x00124b00abcdef01"
+        assert len(callback_data) == 1
+
+    async def test_rename_device(self):
+        climate = MockClimate()
+        await climate.power_on()
+        result = await climate.rename_device("old", "new")
+        assert result is True

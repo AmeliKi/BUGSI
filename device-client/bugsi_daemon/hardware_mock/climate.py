@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 class MockClimate(HardwareSensor, PowerControllable):
-    """Mock SONOFF SNZB-02WD Zigbee temp/humidity sensor with power control."""
+    """Mock Zigbee climate sensor with power control."""
 
     def __init__(self):
         self._healthy = False
@@ -28,6 +28,9 @@ class MockClimate(HardwareSensor, PowerControllable):
         self._last_reading = {
             "temperature": round(max(5.0, min(35.0, temp)), 1),
             "humidity": round(max(30.0, min(90.0, humidity)), 1),
+            "sensor_battery": random.randint(60, 100),
+            "sensor_voltage": random.randint(2800, 3200),
+            "zigbee_linkquality": random.randint(50, 255),
         }
         return self._last_reading
 
@@ -57,7 +60,7 @@ class MockClimate(HardwareSensor, PowerControllable):
             return []
         return [
             {
-                "friendly_name": "SNZB-02WD",
+                "friendly_name": "climate_sensor",
                 "type": "EndDevice",
                 "model": "SNZB-02D",
                 "vendor": "SONOFF",
@@ -65,3 +68,21 @@ class MockClimate(HardwareSensor, PowerControllable):
                 "available": True,
             },
         ]
+
+    async def pair_zigbee(self, timeout: int = 120, on_device_joined=None) -> list[dict]:
+        """Simulate a device join event."""
+        import asyncio
+        await asyncio.sleep(2)
+        device = {
+            "friendly_name": "0x00124b00abcdef01",
+            "ieee_address": "0x00124b00abcdef01",
+            "model": "ZTH01",
+            "vendor": "Tuya",
+        }
+        if on_device_joined:
+            on_device_joined(device)
+        return [device]
+
+    async def rename_device(self, old_name: str, new_name: str) -> bool:
+        """Simulate device rename."""
+        return True

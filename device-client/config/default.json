@@ -54,7 +54,7 @@
   "zigbee": {
     "mqtt_host": "localhost",
     "mqtt_port": 1883,
-    "device_name": "SNZB-02WD",
+    "device_name": "climate_sensor",
     "usb_hub": null,
     "usb_port": null
   },

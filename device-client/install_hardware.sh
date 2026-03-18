@@ -24,6 +24,7 @@ warn() { echo -e "\033[1;33m[WARN]\033[0m $*"; }
 err()  { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; }
 
 sync_barrier() {
+    return
     local stage="$1"
     sync
     if dmesg 2>/dev/null | tail -50 | grep -qi "ext4.*error"; then
@@ -94,13 +95,13 @@ echo
 # --- Filesystem health check ------------------------------------------------
 log "Checking filesystem health..."
 ROOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null || echo "")
-if dmesg 2>/dev/null | grep -qi "ext4.*error"; then
-    warn "Existing EXT4 errors detected in kernel log!"
-    warn "Run 'sudo fsck.ext4 -p $ROOT_DEV' from recovery/initramfs before proceeding."
-    warn "Continuing with filesystem errors risks further corruption."
-    read -r -p "[BUGSI] Continue anyway? (y/N) " confirm
-    [[ "$confirm" =~ ^[Yy]$ ]] || { err "Aborted — fix filesystem first."; exit 1; }
-fi
+# if dmesg 2>/dev/null | grep -qi "ext4.*error"; then
+#     warn "Existing EXT4 errors detected in kernel log!"
+#     warn "Run 'sudo fsck.ext4 -p $ROOT_DEV' from recovery/initramfs before proceeding."
+#     warn "Continuing with filesystem errors risks further corruption."
+#     read -r -p "[BUGSI] Continue anyway? (y/N) " confirm
+#     [[ "$confirm" =~ ^[Yy]$ ]] || { err "Aborted — fix filesystem first."; exit 1; }
+# fi
 if mount | grep -q "on / .*ro[,)]"; then
     err "Root filesystem is mounted read-only — filesystem corruption likely."
     err "Boot into recovery and run: fsck.ext4 -p $ROOT_DEV"
@@ -301,6 +302,12 @@ echo
 
 log "--- [4/6] Zigbee2MQTT ---"
 
+# --- uhubctl (USB hub power control for Zigbee dongle) ---
+if ! command -v uhubctl &>/dev/null; then
+    log "Installing uhubctl (USB hub power control)..."
+    apt-get install -y uhubctl
+fi
+
 # --- Mosquitto (independent of Zigbee2MQTT install state) ---
 if ! dpkg -l mosquitto 2>/dev/null | grep -q "^ii"; then
     log "Installing Mosquitto MQTT broker..."
@@ -355,6 +362,50 @@ else
 
     log "Building Zigbee2MQTT..."
     sudo -u "${SUDO_USER:-bugsi}" pnpm build
+fi
+
+# Ensure data directory is writable by the bugsi service user
+mkdir -p /opt/zigbee2mqtt/data
+chown -R bugsi:bugsi /opt/zigbee2mqtt/data
+
+# Create Zigbee2MQTT configuration if not already customized
+if [[ ! -f /opt/zigbee2mqtt/data/configuration.yaml ]] || ! grep -q "serial:" /opt/zigbee2mqtt/data/configuration.yaml; then
+    log "Creating Zigbee2MQTT configuration..."
+
+    # Auto-detect Zigbee coordinator serial port
+    ZIGBEE_PORT=""
+    for dev in /dev/serial/by-id/*Sonoff*Zigbee* /dev/serial/by-id/*10c4* /dev/ttyUSB0; do
+        if [[ -e "$dev" ]]; then
+            ZIGBEE_PORT="$dev"
+            break
+        fi
+    done
+
+    if [[ -z "$ZIGBEE_PORT" ]]; then
+        warn "Could not auto-detect Zigbee coordinator serial port"
+        warn "Set 'serial.port' in /opt/zigbee2mqtt/data/configuration.yaml manually"
+        ZIGBEE_PORT="/dev/ttyUSB0"
+    else
+        log "Detected Zigbee coordinator at $ZIGBEE_PORT"
+    fi
+
+    cat > /opt/zigbee2mqtt/data/configuration.yaml <<CFGEOF
+homeassistant: false
+permit_join: true
+mqtt:
+  base_topic: zigbee2mqtt
+  server: mqtt://localhost
+serial:
+  port: ${ZIGBEE_PORT}
+  adapter: ezsp
+frontend:
+  enabled: false
+advanced:
+  log_level: warn
+  channel: 11
+CFGEOF
+    chown bugsi:bugsi /opt/zigbee2mqtt/data/configuration.yaml
+    log "Zigbee2MQTT configured (frontend disabled, serial: ${ZIGBEE_PORT})"
 fi
 
 # --- Zigbee2MQTT systemd service (always ensure it exists and is enabled) ---

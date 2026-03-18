@@ -267,6 +267,60 @@ bugsi test-hardware schedule
    bugsi run --verbose
    ```
 
+## Pairing a Zigbee Temperature & Humidity Sensor
+
+The BUGSI device supports any Zigbee temperature/humidity sensor compatible with [Zigbee2MQTT](https://www.zigbee2mqtt.io/supported-devices/), for example:
+
+- SONOFF SNZB-02WD
+- Tuya ZTH01 / ZTH02
+- Aqara WSDCGQ11LM
+
+### Pair via CLI
+
+```bash
+bugsi pair-zigbee
+```
+
+This powers on the Zigbee stack, opens a 120-second pairing window, and listens for new devices. Put your sensor into pairing mode (usually hold the button for 5 seconds) while the window is open.
+
+Options:
+
+```
+--timeout SECONDS   Pairing window duration (default: 120)
+--rename NAME       Rename the joined device to this friendly name
+```
+
+To pair and immediately set the friendly name used by the daemon:
+
+```bash
+bugsi pair-zigbee --rename climate_sensor
+```
+
+Example output:
+
+```
+Powering on Zigbee stack...
+Zigbee stack ready. Opening pairing window for 120s...
+Put your Zigbee sensor into pairing mode now.
+
+  [JOINED] 0x00124b00abcdef01 (Tuya ZTH01) as "0x00124b00abcdef01"
+
+Renaming "0x00124b00abcdef01" -> "climate_sensor"... OK
+
+Paired devices:
+  [ONLINE] climate_sensor (Tuya ZTH01, EndDevice)
+
+Powering off Zigbee stack... Done.
+```
+
+After pairing, make sure the `zigbee.device_name` in your config matches the sensor's friendly name (default: `"climate_sensor"`). If you used `--rename climate_sensor`, no config change is needed.
+
+### Test in mock mode
+
+```bash
+bugsi pair-zigbee --mock
+```
+
 ## Checking Zigbee Sensor Connectivity
 
 ### Via CLI
@@ -282,9 +336,9 @@ This powers on the USB dongle and Zigbee2MQTT services, queries the bridge for a
   Powering on Zigbee stack...
   Querying paired devices...
   Found 1 device(s):
-    [ONLINE] SNZB-02WD (SONOFF SNZB-02D, EndDevice, 0x00124b00abcdef01)
-  Waiting 5s for sensor data from 'SNZB-02WD'...
-  Sensor data: {'temperature': 22.3, 'humidity': 55.1}
+    [ONLINE] climate_sensor (Tuya ZTH01, EndDevice, 0x00124b00abcdef01)
+  Waiting 5s for sensor data from 'climate_sensor'...
+  Sensor data: {'temperature': 22.3, 'humidity': 55.1, 'sensor_battery': 92, 'zigbee_linkquality': 150}
   OK
 ```
 
@@ -304,20 +358,17 @@ mosquitto_sub -t "zigbee2mqtt/bridge/devices" -C 1 | python3 -m json.tool
 mosquitto_sub -t "zigbee2mqtt/bridge/response/devices" -C 1 &
 mosquitto_pub -t "zigbee2mqtt/bridge/request/devices" -m ""
 
-# Watch live sensor data from a specific device
-mosquitto_sub -t "zigbee2mqtt/SNZB-02WD" -v
+# Watch live sensor data (replace with your sensor's friendly name)
+mosquitto_sub -t "zigbee2mqtt/climate_sensor" -v
 ```
 
 ### Troubleshooting
 
 If a sensor shows `OFFLINE` or no data arrives:
 
-- **Check battery** in the SONOFF SNZB-02WD sensor
+- **Check battery** — the sensor's coin cell may be depleted (check `sensor_battery` in telemetry)
 - **Check range** — move the sensor closer to the ZBDongle-E USB stick
-- **Re-pair the sensor**: put Zigbee2MQTT in permit-join mode and reset the sensor (hold button for 5 seconds)
-  ```bash
-  mosquitto_pub -t "zigbee2mqtt/bridge/request/permit_join" -m '{"value": true, "time": 120}'
-  ```
+- **Re-pair the sensor**: `bugsi pair-zigbee --rename climate_sensor`
 - **Check Zigbee2MQTT logs**: `sudo journalctl -u zigbee2mqtt -f`
 - **Check USB dongle is detected**: `lsusb | grep -i "cp21\|ch91\|silicon"`
 
@@ -344,7 +395,7 @@ Configuration is managed remotely via the SaaS backend. The device polls for upd
 | `image_capture.enabled` | true | Enable the image capture pipeline |
 | `image_capture.cooldown_seconds` | 10 | Cooldown between detections |
 | `image_capture.zigbee_warmup_seconds` | 5 | Wait for Zigbee data after power on |
-| `zigbee.device_name` | "SNZB-02WD" | Zigbee2MQTT friendly name of the sensor |
+| `zigbee.device_name` | "climate_sensor" | Zigbee2MQTT friendly name of the sensor |
 | `storage.buffer_db_path` | /mnt/usb/bugsi/buffer.db | SQLite database path |
 | `storage.backup_path` | /mnt/usb/bugsi/backup/ | Backup directory |
 | `storage.backup_interval_minutes` | 60 | How often to backup DB |

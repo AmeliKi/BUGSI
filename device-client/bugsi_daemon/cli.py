@@ -125,7 +125,7 @@ def create_hardware(mock: bool, config: ConfigManager | None = None) -> dict:
         "climate": ZigbeeClimateSensor(
             mqtt_host=config.get("zigbee.mqtt_host", "localhost") if config else "localhost",
             mqtt_port=config.get("zigbee.mqtt_port", 1883) if config else 1883,
-            device_name=config.get("zigbee.device_name", "SNZB-02WD") if config else "SNZB-02WD",
+            device_name=config.get("zigbee.device_name", "climate_sensor") if config else "climate_sensor",
             usb_hub=config.get("zigbee.usb_hub") if config else None,
             usb_port=config.get("zigbee.usb_port") if config else None,
         ),
@@ -354,10 +354,26 @@ async def cmd_config(config: ConfigManager, _mock: bool) -> None:
     print(json.dumps(config.get_all(), indent=2))
 
 
+async def _init_hardware(config: ConfigManager, mock: bool) -> dict:
+    """Lightweight hardware init for test-hardware (no web server, WLAN, etc.)."""
+    hw = create_hardware(mock, config)
+    fallbacks = _mock_fallbacks()
+
+    for name, sensor in list(hw.items()):
+        if hasattr(sensor, "initialize"):
+            try:
+                await sensor.initialize()
+            except NotImplementedError:
+                logger.warning("%s: real driver not implemented, using mock", name)
+                hw[name] = fallbacks[name]()
+                await hw[name].initialize()
+
+    return hw
+
+
 async def cmd_test_hardware(config: ConfigManager, mock: bool, subsystem: str | None = None) -> None:
     """Test individual hardware subsystems interactively."""
-    components = await init_components(config, mock)
-    hw = components["hw"]
+    hw = await _init_hardware(config, mock)
 
     async def test_cameras():
         print("\n=== Still Camera ===")
@@ -443,7 +459,13 @@ async def cmd_test_hardware(config: ConfigManager, mock: bool, subsystem: str | 
 
     async def test_power_schedule():
         print("\n=== Power Schedule ===")
-        pm_mgr = components["power_manager"]
+        pm_mgr = PowerManager(
+            config=config,
+            lte=hw["lte"],
+            power_mgmt=hw["power_mgmt"],
+            backup=BufferBackup("/dev/null", "/tmp/bugsi_backup/"),
+            wlan=hw.get("wlan"),
+        )
         start, end = pm_mgr.get_active_hours()
         from datetime import datetime as dt
         now = dt.now()
@@ -509,7 +531,7 @@ async def cmd_test_hardware(config: ConfigManager, mock: bool, subsystem: str | 
                     print(f"    [{status}] {name} ({vendor} {model}, {dev_type}, {ieee})")
 
             # Try reading sensor data
-            device_name = config.get("zigbee.device_name", "SNZB-02WD")
+            device_name = config.get("zigbee.device_name", "climate_sensor")
             warmup = config.get("image_capture.zigbee_warmup_seconds", 5)
             print(f"  Waiting {warmup}s for sensor data from '{device_name}'...")
             import asyncio as _asyncio
@@ -527,15 +549,35 @@ async def cmd_test_hardware(config: ConfigManager, mock: bool, subsystem: str | 
 
     async def test_capture():
         print("\n=== Image Capture Pipeline ===")
-        pipeline = components.get("image_pipeline")
-        if pipeline is None:
+        if not config.get("image_capture.enabled", True):
             print("  Pipeline not enabled (set image_capture.enabled=true)")
             return
         try:
+            from bugsi_daemon.core.image_capture_pipeline import ImageCapturePipeline
+            import os
+            import tempfile
+
+            db_path = config.get("storage.buffer_db_path", "/tmp/bugsi_buffer.db")
+            buffer = BufferStore(db_path)
+            await buffer.initialize()
+
+            save_dir = config.get("image_capture.save_dir", "/mnt/usb/bugsi/detections")
+            if not os.path.exists(os.path.dirname(save_dir) if save_dir != "/" else save_dir):
+                save_dir = os.path.join(tempfile.gettempdir(), "bugsi_detections")
+
+            pipeline = ImageCapturePipeline(
+                config=config,
+                event_camera=hw["event_camera"],
+                still_camera=hw["still_camera"],
+                climate=hw["climate"],
+                buffer=buffer,
+                save_dir=save_dir,
+            )
             print("  Running one capture sequence...")
             await pipeline._capture_sequence()
             print(f"  Pictures taken: {pipeline.pictures_taken}")
             print("  OK")
+            await buffer.close()
         except Exception as e:
             print(f"  ERROR: {e}")
 
@@ -554,19 +596,84 @@ async def cmd_test_hardware(config: ConfigManager, mock: bool, subsystem: str | 
     print(f"BUGSI Hardware Test ({mode_str} mode)")
     print("=" * 40)
 
-    try:
-        if subsystem:
-            if subsystem == "all":
-                for test_fn in tests.values():
-                    await test_fn()
-            elif subsystem in tests:
-                await tests[subsystem]()
-            else:
-                print(f"Unknown subsystem: {subsystem}")
-                print(f"Available: {', '.join(tests.keys())}, all")
+    if subsystem:
+        if subsystem == "all":
+            for test_fn in tests.values():
+                await test_fn()
+        elif subsystem in tests:
+            await tests[subsystem]()
         else:
-            print(f"Available subsystems: {', '.join(tests.keys())}, all")
-            print("Usage: bugsi test-hardware <subsystem>")
+            print(f"Unknown subsystem: {subsystem}")
+            print(f"Available: {', '.join(tests.keys())}, all")
+    else:
+        print(f"Available subsystems: {', '.join(tests.keys())}, all")
+        print("Usage: bugsi test-hardware <subsystem>")
+
+
+async def cmd_pair_zigbee(
+    config: ConfigManager, mock: bool, timeout: int = 120, rename: str | None = None,
+) -> None:
+    """Pair a new Zigbee sensor."""
+    hw = await _init_hardware(config, mock)
+    climate = hw["climate"]
+
+    try:
+        print("Powering on Zigbee stack...")
+        await climate.power_on()
+
+        print(f"Zigbee stack ready. Opening pairing window for {timeout}s...")
+        print("Put your Zigbee sensor into pairing mode now.")
+        print()
+
+        def on_joined(data: dict) -> None:
+            name = data.get("friendly_name", "unknown")
+            ieee = data.get("ieee_address", "?")
+            model = data.get("model", "?")
+            vendor = data.get("vendor", "?")
+            print(f"  [JOINED] {ieee} ({vendor} {model}) as \"{name}\"")
+
+        joined = await climate.pair_zigbee(timeout=timeout, on_device_joined=on_joined)
+        print()
+
+        if not joined:
+            print("No devices joined during the pairing window.")
+        else:
+            # Determine the target name: explicit --rename, or the configured device_name
+            target_name = rename or config.get("zigbee.device_name", "climate_sensor") if config else rename
+            if target_name:
+                # Check if the name is already taken by another device
+                devices = await climate.get_devices()
+                existing_names = {
+                    d.get("friendly_name") for d in devices
+                    if d.get("type") != "Coordinator"
+                }
+                first_name = joined[0].get("friendly_name", "")
+
+                if first_name == target_name:
+                    print(f"Device already named \"{target_name}\".")
+                elif target_name in existing_names:
+                    print(f"Name \"{target_name}\" is already in use by another device, skipping rename.")
+                elif first_name:
+                    print(f"Renaming \"{first_name}\" -> \"{target_name}\"...", end=" ")
+                    success = await climate.rename_device(first_name, target_name)
+                    print("OK" if success else "FAILED")
+                print()
+
+        # List all paired devices
+        devices = await climate.get_devices()
+        if devices:
+            print("Paired devices:")
+            for dev in devices:
+                name = dev.get("friendly_name", "unknown")
+                model = dev.get("model", "?")
+                vendor = dev.get("vendor", "?")
+                available = dev.get("available", False)
+                dev_type = dev.get("type", "?")
+                status = "ONLINE" if available else "OFFLINE"
+                print(f"  [{status}] {name} ({vendor} {model}, {dev_type})")
+            print()
+
     finally:
-        await components["buffer"].close()
-        components["client"].close()
+        print("Powering off Zigbee stack...", end=" ")
+        await climate.power_off()
+        print("Done.")
