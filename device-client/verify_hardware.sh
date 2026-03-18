@@ -55,16 +55,14 @@ check "Witty Pi 5 software" \
 check "I2C interface" \
     "ls /dev/i2c-* 2>/dev/null && echo 'I2C devices found' || (grep -q 'dtparam=i2c_arm=on' /boot/firmware/config.txt && echo 'I2C configured but /dev/i2c-* not found — reboot needed?')"
 
-# 8. Zigbee2MQTT service
-check "Zigbee2MQTT service" \
-    "systemctl is-enabled zigbee2mqtt 2>/dev/null && \
-     state=\$(systemctl is-active zigbee2mqtt 2>/dev/null || true) && \
-     echo \"\$state\" && \
-     [[ \"\$state\" == \"active\" || \"\$state\" == \"activating\" ]]"
+# 8. Zigbee coordinator serial port
+check "Zigbee coordinator serial port" \
+    "ls /dev/serial/by-id/*Sonoff*Zigbee* 2>/dev/null || ls /dev/serial/by-id/*10c4* 2>/dev/null || (test -c /dev/ttyUSB0 && echo '/dev/ttyUSB0')"
 
-# 9. Mosquitto MQTT broker
-check "Mosquitto MQTT broker" \
-    "systemctl is-enabled mosquitto 2>/dev/null && systemctl is-active mosquitto 2>/dev/null || { echo '--- mosquitto status ---'; systemctl status mosquitto --no-pager 2>/dev/null | head -15; false; }"
+# 9. Zigbee database directory
+check "Zigbee database (zigpy)" \
+    "test -d /var/cache/bugsi && echo 'zigpy cache dir exists' && \
+     (test -f /var/cache/bugsi/zigbee.db && echo 'zigpy database exists' || echo 'No database yet (will be created on first run)')"
 
 # 10. LTE modem (usb0)
 check "LTE modem (usb0)" \

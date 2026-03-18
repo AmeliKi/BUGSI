@@ -48,6 +48,7 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("upload", help="Run one upload cycle immediately", parents=[shared])
     subparsers.add_parser("status", help="Show buffer stats, config version, power mode", parents=[shared])
     subparsers.add_parser("config", help="Show current configuration", parents=[shared])
+    subparsers.add_parser("config-pull", help="Fetch latest config from SaaS", parents=[shared])
 
     test_hw = subparsers.add_parser(
         "test-hardware", help="Test individual hardware subsystems", parents=[shared],
@@ -160,6 +161,7 @@ def main() -> None:
         "upload": cli.cmd_upload,
         "status": cli.cmd_status,
         "config": cli.cmd_config,
+        "config-pull": cli.cmd_config_pull,
     }
 
     if args.command == "run":

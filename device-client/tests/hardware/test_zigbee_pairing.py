@@ -8,13 +8,19 @@ from bugsi_daemon.hardware.climate import ZigbeeClimateSensor
 
 
 def _make_sensor(**kwargs) -> ZigbeeClimateSensor:
-    return ZigbeeClimateSensor(**kwargs)
+    defaults = {"serial_port": "auto", "adapter": "ezsp"}
+    defaults.update(kwargs)
+    return ZigbeeClimateSensor(**defaults)
 
 
-class _FakeMessage:
-    def __init__(self, topic: str, payload: dict):
-        self.topic = topic
-        self.payload = json.dumps(payload).encode()
+def _make_mock_app(devices=None):
+    """Create a mock zigpy ControllerApplication."""
+    app = AsyncMock()
+    app.devices = devices or {}
+    app.permit = AsyncMock()
+    app.add_listener = MagicMock()
+    app.remove_listener = MagicMock()
+    return app
 
 
 @pytest.mark.asyncio
@@ -24,80 +30,43 @@ class TestPairZigbee:
         with pytest.raises(RuntimeError, match="powered on"):
             await sensor.pair_zigbee()
 
-    async def test_publishes_permit_join(self):
+    async def test_calls_permit_on_app(self):
         sensor = _make_sensor()
         sensor._powered = True
+        sensor._app = _make_mock_app()
 
-        published = []
-
-        class FakeClient:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                pass
-
-            async def subscribe(self, topic):
-                pass
-
-            async def publish(self, topic, payload, **kwargs):
-                raw = payload.decode() if isinstance(payload, bytes) else payload
-                published.append((topic, json.loads(raw)))
-
-            @property
-            def messages(self):
-                return _empty_messages()
-
-        async def _empty_messages():
-            return
-            yield
-
-        with patch("aiomqtt.Client", return_value=FakeClient()):
+        # Make permit_join timeout immediately
+        with patch("asyncio.timeout", side_effect=asyncio.TimeoutError):
             await sensor.pair_zigbee(timeout=1)
 
-        # First publish: enable permit join; second: disable
-        assert len(published) == 2
-        assert published[0][0] == "zigbee2mqtt/bridge/request/permit_join"
-        assert published[0][1] == {"value": True, "time": 1}
-        assert published[1][1] == {"value": False}
+        # Verify permit was called with timeout
+        sensor._app.permit.assert_any_call(time_s=1)
 
     async def test_collects_joined_devices(self):
         sensor = _make_sensor()
         sensor._powered = True
 
-        join_event = {
-            "type": "device_joined",
-            "data": {
-                "friendly_name": "0xaabbccdd",
-                "ieee_address": "0xaabbccdd",
-                "model": "ZTH01",
-                "vendor": "Tuya",
-            },
-        }
+        mock_app = _make_mock_app()
 
-        class FakeClient:
-            async def __aenter__(self):
-                return self
+        # Capture the listener when add_listener is called, then simulate a join
+        captured_listener = None
 
-            async def __aexit__(self, *args):
-                pass
+        def capture_and_trigger(listener):
+            nonlocal captured_listener
+            captured_listener = listener
+            # Simulate device join after listener is registered
+            mock_device = MagicMock()
+            mock_device.ieee = "0xaabbccdd"
+            mock_device.model = "ZTH01"
+            mock_device.manufacturer = "Tuya"
+            mock_device.endpoints = {}
+            mock_app.devices = {mock_device.ieee: mock_device}
+            listener.device_joined(mock_device)
 
-            async def subscribe(self, topic):
-                pass
+        mock_app.add_listener.side_effect = capture_and_trigger
+        sensor._app = mock_app
 
-            async def publish(self, topic, payload, **kwargs):
-                pass
-
-            @property
-            def messages(self):
-                return self._gen()
-
-            async def _gen(self):
-                yield _FakeMessage("zigbee2mqtt/bridge/event", join_event)
-                await asyncio.sleep(999)
-
-        with patch("aiomqtt.Client", return_value=FakeClient()):
-            joined = await sensor.pair_zigbee(timeout=1)
+        joined = await sensor.pair_zigbee(timeout=1)
 
         assert len(joined) == 1
         assert joined[0]["ieee_address"] == "0xaabbccdd"
@@ -107,74 +76,42 @@ class TestPairZigbee:
         sensor = _make_sensor()
         sensor._powered = True
 
-        join_event = {
-            "type": "device_joined",
-            "data": {"friendly_name": "0xaabb", "ieee_address": "0xaabb"},
-        }
-
-        class FakeClient:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                pass
-
-            async def subscribe(self, topic):
-                pass
-
-            async def publish(self, topic, payload, **kwargs):
-                pass
-
-            @property
-            def messages(self):
-                return self._gen()
-
-            async def _gen(self):
-                yield _FakeMessage("zigbee2mqtt/bridge/event", join_event)
-                await asyncio.sleep(999)
-
+        mock_app = _make_mock_app()
         callback_args = []
 
-        with patch("aiomqtt.Client", return_value=FakeClient()):
-            await sensor.pair_zigbee(timeout=1, on_device_joined=lambda d: callback_args.append(d))
+        def capture_and_trigger(listener):
+            mock_device = MagicMock()
+            mock_device.ieee = "0xaabb"
+            mock_device.model = None
+            mock_device.manufacturer = None
+            mock_device.endpoints = {}
+            mock_app.devices = {mock_device.ieee: mock_device}
+            listener.device_joined(mock_device)
+
+        mock_app.add_listener.side_effect = capture_and_trigger
+        sensor._app = mock_app
+
+        joined = await sensor.pair_zigbee(
+            timeout=1,
+            on_device_joined=lambda d: callback_args.append(d),
+        )
 
         assert len(callback_args) == 1
         assert callback_args[0]["friendly_name"] == "0xaabb"
 
-    async def test_disables_permit_join_after(self):
+    async def test_disables_permit_after(self):
         sensor = _make_sensor()
         sensor._powered = True
+        sensor._app = _make_mock_app()
 
-        published = []
-
-        class FakeClient:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                pass
-
-            async def subscribe(self, topic):
-                pass
-
-            async def publish(self, topic, payload, **kwargs):
-                raw = payload.decode() if isinstance(payload, bytes) else payload
-                published.append((topic, json.loads(raw)))
-
-            @property
-            def messages(self):
-                return self._gen()
-
-            async def _gen(self):
-                return
-                yield
-
-        with patch("aiomqtt.Client", return_value=FakeClient()):
+        with patch("asyncio.timeout", side_effect=asyncio.TimeoutError):
             await sensor.pair_zigbee(timeout=1)
 
-        last = published[-1]
-        assert last[0] == "zigbee2mqtt/bridge/request/permit_join"
-        assert last[1] == {"value": False}
+        # Last permit call should disable pairing
+        calls = sensor._app.permit.call_args_list
+        assert len(calls) >= 2
+        assert calls[-1].kwargs.get("time_s") == 0 or calls[-1].args == (0,) or \
+            calls[-1] == ({"time_s": 0},)
 
 
 @pytest.mark.asyncio
@@ -184,64 +121,52 @@ class TestRenameDevice:
         with pytest.raises(RuntimeError, match="powered on"):
             await sensor.rename_device("old", "new")
 
-    async def test_success(self):
-        sensor = _make_sensor()
-        sensor._powered = True
+    async def test_success(self, tmp_path):
+        import bugsi_daemon.hardware.climate as climate_mod
+        name_file = tmp_path / "zigbee_names.json"
+        name_file.write_text(json.dumps({"0xaabb": "old_name"}))
+        original = climate_mod._NAME_MAP_PATH
+        climate_mod._NAME_MAP_PATH = name_file
 
-        class FakeClient:
-            async def __aenter__(self):
-                return self
+        try:
+            sensor = _make_sensor()
+            sensor._powered = True
+            sensor._app = _make_mock_app()
 
-            async def __aexit__(self, *args):
-                pass
-
-            async def subscribe(self, topic):
-                pass
-
-            async def publish(self, topic, payload, **kwargs):
-                pass
-
-            @property
-            def messages(self):
-                return self._gen()
-
-            async def _gen(self):
-                yield _FakeMessage(
-                    "zigbee2mqtt/bridge/response/device/rename",
-                    {"status": "ok"},
-                )
-
-        with patch("aiomqtt.Client", return_value=FakeClient()):
             result = await sensor.rename_device("old_name", "new_name")
+            assert result is True
 
-        assert result is True
+            # Verify the file was updated
+            data = json.loads(name_file.read_text())
+            assert data["0xaabb"] == "new_name"
+        finally:
+            climate_mod._NAME_MAP_PATH = original
+
+    async def test_unknown_name_returns_false(self, tmp_path):
+        import bugsi_daemon.hardware.climate as climate_mod
+        name_file = tmp_path / "zigbee_names.json"
+        name_file.write_text(json.dumps({}))
+        original = climate_mod._NAME_MAP_PATH
+        climate_mod._NAME_MAP_PATH = name_file
+
+        try:
+            sensor = _make_sensor()
+            sensor._powered = True
+            sensor._app = _make_mock_app()
+
+            result = await sensor.rename_device("nonexistent", "new_name")
+            assert result is False
+        finally:
+            climate_mod._NAME_MAP_PATH = original
 
     async def test_timeout(self):
+        """Rename returns False when name not found (replaces old MQTT timeout test)."""
         sensor = _make_sensor()
         sensor._powered = True
+        sensor._app = _make_mock_app()
 
-        class FakeClient:
-            async def __aenter__(self):
-                return self
-
-            async def __aexit__(self, *args):
-                pass
-
-            async def subscribe(self, topic):
-                pass
-
-            async def publish(self, topic, payload, **kwargs):
-                pass
-
-            @property
-            def messages(self):
-                return self._gen()
-
-            async def _gen(self):
-                return
-                yield
-
-        with patch("aiomqtt.Client", return_value=FakeClient()):
+        # With empty name map, rename should fail
+        with patch.object(ZigbeeClimateSensor, "_load_name_map", return_value={}):
             result = await sensor.rename_device("old_name", "new_name")
 
         assert result is False

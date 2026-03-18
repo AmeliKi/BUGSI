@@ -123,9 +123,11 @@ def create_hardware(mock: bool, config: ConfigManager | None = None) -> dict:
         "battery": VictronSmartShunt(),
         "solar": VictronSmartSolar(),
         "climate": ZigbeeClimateSensor(
-            mqtt_host=config.get("zigbee.mqtt_host", "localhost") if config else "localhost",
-            mqtt_port=config.get("zigbee.mqtt_port", 1883) if config else 1883,
+            serial_port=config.get("zigbee.serial_port", "auto") if config else "auto",
+            adapter=config.get("zigbee.adapter", "ezsp") if config else "ezsp",
             device_name=config.get("zigbee.device_name", "climate_sensor") if config else "climate_sensor",
+            database_path=config.get("zigbee.database_path", "/var/cache/bugsi/zigbee.db") if config else "/var/cache/bugsi/zigbee.db",
+            network_channel=config.get("zigbee.network_channel", 11) if config else 11,
             usb_hub=config.get("zigbee.usb_hub") if config else None,
             usb_port=config.get("zigbee.usb_port") if config else None,
         ),
@@ -176,8 +178,13 @@ async def init_components(config: ConfigManager, mock: bool) -> dict:
     buffer = BufferStore(db_path)
     await buffer.initialize()
 
-    # Backup
+    # Backup - use temp path if configured path's parent doesn't exist (dev machine)
     backup_path = config.get("storage.backup_path", "/tmp/bugsi_backup/")
+    backup_dir = os.path.dirname(backup_path.rstrip("/"))
+    if backup_dir and not os.path.exists(backup_dir):
+        import tempfile
+        backup_path = os.path.join(tempfile.gettempdir(), "bugsi_backup")
+        logger.info("Backup path unavailable, using %s", backup_path)
     backup = BufferBackup(db_path, backup_path)
 
     # Client
@@ -354,6 +361,45 @@ async def cmd_config(config: ConfigManager, _mock: bool) -> None:
     print(json.dumps(config.get_all(), indent=2))
 
 
+async def cmd_config_pull(config: ConfigManager, mock: bool) -> None:
+    """Fetch latest configuration from SaaS backend."""
+    components = await init_components(config, mock)
+    try:
+        # Power on LTE for network access
+        lte = components["hw"]["lte"]
+        print("Powering on LTE...")
+        await lte.power_on()
+
+        if not await lte.wait_for_network(timeout=60):
+            print("Error: LTE network registration timeout", file=sys.stderr)
+            return
+
+        print("Polling config from SaaS...")
+        client = components["client"]
+        result = client.poll_config()
+
+        if result.get("has_update"):
+            version = result["version"]
+            config_data = result["config"]
+            changed = config.apply_remote(config_data, version)
+            if changed:
+                client.ack_config(version)
+                print(f"Config updated to v{version}")
+            else:
+                print(f"Config already up to date (v{config.version})")
+        else:
+            print(f"No config update available (v{config.version})")
+
+        print(json.dumps(config.get_all(), indent=2))
+
+    except Exception as e:
+        print(f"Error fetching config: {e}", file=sys.stderr)
+    finally:
+        await components["hw"]["lte"].power_off()
+        await components["buffer"].close()
+        components["client"].close()
+
+
 async def _init_hardware(config: ConfigManager, mock: bool) -> dict:
     """Lightweight hardware init for test-hardware (no web server, WLAN, etc.)."""
     hw = create_hardware(mock, config)
@@ -517,7 +563,7 @@ async def cmd_test_hardware(config: ConfigManager, mock: bool, subsystem: str | 
             print("  Querying paired devices...")
             devices = await climate.get_devices()
             if not devices:
-                print("  No devices found (or Zigbee2MQTT not responding)")
+                print("  No devices found (or Zigbee stack not responding)")
             else:
                 print(f"  Found {len(devices)} device(s):")
                 for dev in devices:
@@ -530,17 +576,22 @@ async def cmd_test_hardware(config: ConfigManager, mock: bool, subsystem: str | 
                     status = "ONLINE" if available else "OFFLINE"
                     print(f"    [{status}] {name} ({vendor} {model}, {dev_type}, {ieee})")
 
-            # Try reading sensor data
+            # Wait for sensor data (sensor may join/initialize after power-on)
             device_name = config.get("zigbee.device_name", "climate_sensor")
-            warmup = config.get("image_capture.zigbee_warmup_seconds", 5)
-            print(f"  Waiting {warmup}s for sensor data from '{device_name}'...")
-            import asyncio as _asyncio
-            await _asyncio.sleep(warmup)
-            reading = await climate.read()
+            timeout = 90
+            print(f"  Waiting up to {timeout}s for sensor data from '{device_name}'...")
+            print("  (sleepy Zigbee devices may take time to wake up and report)")
+            if hasattr(climate, "wait_for_reading"):
+                reading = await climate.wait_for_reading(timeout=timeout)
+            else:
+                import asyncio as _asyncio
+                await _asyncio.sleep(config.get("image_capture.zigbee_warmup_seconds", 5))
+                reading = await climate.read()
             if reading:
                 print(f"  Sensor data: {reading}")
             else:
                 print(f"  No data received from '{device_name}' (check pairing)")
+                print("  Tip: run 'bugsi pair-zigbee' first to pair the sensor")
 
             await climate.power_off()
             print("  OK")

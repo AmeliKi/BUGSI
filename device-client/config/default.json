@@ -52,9 +52,11 @@
     "energy_saving_wlan_minutes": 10
   },
   "zigbee": {
-    "mqtt_host": "localhost",
-    "mqtt_port": 1883,
+    "serial_port": "auto",
+    "adapter": "ezsp",
     "device_name": "climate_sensor",
+    "database_path": "/var/cache/bugsi/zigbee.db",
+    "network_channel": 11,
     "usb_hub": null,
     "usb_port": null
   },

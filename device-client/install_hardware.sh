@@ -92,6 +92,18 @@ log "=== BUGSI Hardware Install Script ==="
 log "Target: Raspberry Pi 5 — Debian Trixie"
 echo
 
+# --- Protect apt cache from SD card corruption ------------------------------
+# Route apt downloads through tmpfs (RAM) so corrupted .deb files on the
+# SD card can never break future installs.  Also clean any existing corrupt
+# cache entries before we start.
+log "Setting up tmpfs apt cache (SD card protection)..."
+APT_TMPDIR=$(mktemp -d /tmp/apt-cache.XXXXX)
+chmod 755 "$APT_TMPDIR"
+APT_OPTS="-o Dir::Cache::Archives=${APT_TMPDIR}"
+trap "rm -rf ${APT_TMPDIR}" EXIT
+apt-get clean
+log "apt cache redirected to ${APT_TMPDIR}"
+
 # --- Filesystem health check ------------------------------------------------
 log "Checking filesystem health..."
 ROOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null || echo "")
@@ -107,6 +119,32 @@ if mount | grep -q "on / .*ro[,)]"; then
     err "Boot into recovery and run: fsck.ext4 -p $ROOT_DEV"
     exit 1
 fi
+
+# --- Ensure WLAN preferred during install ------------------------------------
+# Steps below need internet (git clone, wget, apt). If LTE (usb0) has a lower
+# metric than WLAN but no connectivity, downloads will fail. Fix routing now;
+# section 6 installs the persistent service for boot-time.
+log "Setting network priority (WLAN > LTE) for install..."
+for pair in "wlan0:100" "usb0:600"; do
+    dev="${pair%%:*}"
+    metric="${pair##*:}"
+    if ! ip link show "$dev" &>/dev/null; then
+        log "$dev: interface not found — skipping"
+        continue
+    fi
+    route=$(ip route show dev "$dev" default 2>/dev/null | head -1)
+    if [[ -z "$route" ]]; then
+        log "$dev: no default route — skipping"
+        continue
+    fi
+    gw=$(echo "$route" | awk '{for(i=1;i<=NF;i++) if($i=="via") print $(i+1)}')
+    if [[ -z "$gw" ]]; then
+        log "$dev: could not parse gateway — skipping"
+        continue
+    fi
+    ip route replace default via "$gw" dev "$dev" metric "$metric" 2>/dev/null && \
+        log "$dev: metric set to $metric" || warn "$dev: failed to set metric"
+done
 
 # --- Preserve boot target ---------------------------------------------------
 # Record the current systemd default target before we install anything.
@@ -128,8 +166,8 @@ else
     # can pull in kernel upgrades that make existing DKMS modules incompatible)
     log "Installing Prophesee dependencies..."
     apt-get update -qq
-    apt-get install -y "linux-headers-$(uname -r)" dkms
-    apt-get install -y \
+    apt-get $APT_OPTS install -y "linux-headers-$(uname -r)" dkms
+    apt-get $APT_OPTS install -y \
         build-essential cmake git wget curl \
         libboost-program-options-dev libboost-filesystem-dev libboost-system-dev libboost-thread-dev libboost-timer-dev \
         libopencv-dev \
@@ -286,7 +324,7 @@ else
     log "Downloading Witty Pi 5 package..."
     if wget -qO /tmp/wp5_latest.deb https://www.uugear.com/repo/WittyPi5/wp5_latest.deb && [[ -s /tmp/wp5_latest.deb ]]; then
         log "Installing Witty Pi 5..."
-        apt-get install -y /tmp/wp5_latest.deb
+        apt-get $APT_OPTS install -y /tmp/wp5_latest.deb
     else
         err "Failed to download Witty Pi 5 package — check network and URL"
         warn "URL: https://www.uugear.com/repo/WittyPi5/wp5_latest.deb"
@@ -297,147 +335,75 @@ sync_barrier "Witty Pi 5"
 echo
 
 # =============================================================================
-# 4. Zigbee2MQTT (as systemd service)
+# 4. Zigbee (zigpy + bellows — no Node.js, no MQTT broker)
 # =============================================================================
 
-log "--- [4/6] Zigbee2MQTT ---"
+log "--- [4/6] Zigbee (zigpy + bellows) ---"
 
 # --- uhubctl (USB hub power control for Zigbee dongle) ---
 if ! command -v uhubctl &>/dev/null; then
     log "Installing uhubctl (USB hub power control)..."
-    apt-get install -y uhubctl
+    apt-get $APT_OPTS install -y uhubctl
 fi
 
-# --- Mosquitto (independent of Zigbee2MQTT install state) ---
-if ! dpkg -l mosquitto 2>/dev/null | grep -q "^ii"; then
-    log "Installing Mosquitto MQTT broker..."
-    apt-get install -y mosquitto mosquitto-clients
+# --- zigpy + bellows are installed as Python deps via pyproject.toml ---
+# Ensure the bugsi venv has them (in case of standalone pip install)
+BUGSI_VENV="/opt/bugsi/venv"
+if [[ -d "$BUGSI_VENV" ]]; then
+    log "Ensuring zigpy + bellows are installed in bugsi venv..."
+    "$BUGSI_VENV/bin/pip" install --quiet zigpy bellows
 fi
 
-if [[ ! -f /etc/mosquitto/conf.d/bugsi.conf ]]; then
-    log "Creating Mosquitto config..."
-    mkdir -p /etc/mosquitto/conf.d
-    cat > /etc/mosquitto/conf.d/bugsi.conf <<'MQTTEOF'
-listener 1883
-allow_anonymous true
-MQTTEOF
+# Ensure bugsi system user exists
+if ! id bugsi &>/dev/null; then
+    log "Creating bugsi system user..."
+    useradd --system --create-home --shell /usr/sbin/nologin bugsi
 fi
 
-systemctl enable mosquitto 2>/dev/null || true
-systemctl reset-failed mosquitto 2>/dev/null || true
-# Remove corrupted persistence DB if mosquitto fails to start
-if ! systemctl restart mosquitto 2>/dev/null; then
-    warn "Mosquitto failed to start — removing corrupted persistence DB and retrying..."
-    rm -f /var/lib/mosquitto/mosquitto.db
-    systemctl restart mosquitto
-fi
+# Create zigpy database and name map directory
+mkdir -p /var/cache/bugsi
+chown bugsi:bugsi /var/cache/bugsi
 
-# --- Zigbee2MQTT application ---
-if [[ -d /opt/zigbee2mqtt/node_modules ]]; then
-    log "Zigbee2MQTT already installed — skipping"
+# Add bugsi user to dialout group for serial port access
+usermod -aG dialout bugsi 2>/dev/null || true
+
+# Auto-detect serial port for informational purposes
+ZIGBEE_PORT=""
+for dev in /dev/serial/by-id/*Sonoff*Zigbee* /dev/serial/by-id/*10c4* /dev/ttyUSB0; do
+    if [[ -e "$dev" ]]; then
+        ZIGBEE_PORT="$dev"
+        break
+    fi
+done
+if [[ -n "$ZIGBEE_PORT" ]]; then
+    log "Detected Zigbee coordinator at $ZIGBEE_PORT"
 else
-    # Node.js (Debian package — avoids nodesource/npm conflicts)
-    if ! command -v node &>/dev/null; then
-        log "Installing Node.js..."
-        apt-get install -y nodejs npm
-    fi
-    apt-get install -y git make g++ gcc libsystemd-dev
-
-    # Install pnpm via npm (more reliable than corepack on Debian)
-    if ! command -v pnpm &>/dev/null; then
-        log "Installing pnpm..."
-        npm install -g pnpm
-    fi
-
-    # Clone and build
-    log "Cloning Zigbee2MQTT..."
-    mkdir -p /opt/zigbee2mqtt
-    chown -R "${SUDO_USER:-bugsi}": /opt/zigbee2mqtt
-    sudo -u "${SUDO_USER:-bugsi}" git clone --depth 1 \
-        https://github.com/Koenkk/zigbee2mqtt.git /opt/zigbee2mqtt
-
-    log "Installing Zigbee2MQTT dependencies (this may take a while)..."
-    cd /opt/zigbee2mqtt
-    sudo -u "${SUDO_USER:-bugsi}" pnpm install --frozen-lockfile
-
-    log "Building Zigbee2MQTT..."
-    sudo -u "${SUDO_USER:-bugsi}" pnpm build
+    log "No Zigbee coordinator detected (will auto-detect at runtime)"
 fi
 
-# Ensure data directory is writable by the bugsi service user
-mkdir -p /opt/zigbee2mqtt/data
-chown -R bugsi:bugsi /opt/zigbee2mqtt/data
-
-# Create Zigbee2MQTT configuration if not already customized
-if [[ ! -f /opt/zigbee2mqtt/data/configuration.yaml ]] || ! grep -q "serial:" /opt/zigbee2mqtt/data/configuration.yaml; then
-    log "Creating Zigbee2MQTT configuration..."
-
-    # Auto-detect Zigbee coordinator serial port
-    ZIGBEE_PORT=""
-    for dev in /dev/serial/by-id/*Sonoff*Zigbee* /dev/serial/by-id/*10c4* /dev/ttyUSB0; do
-        if [[ -e "$dev" ]]; then
-            ZIGBEE_PORT="$dev"
-            break
-        fi
-    done
-
-    if [[ -z "$ZIGBEE_PORT" ]]; then
-        warn "Could not auto-detect Zigbee coordinator serial port"
-        warn "Set 'serial.port' in /opt/zigbee2mqtt/data/configuration.yaml manually"
-        ZIGBEE_PORT="/dev/ttyUSB0"
-    else
-        log "Detected Zigbee coordinator at $ZIGBEE_PORT"
-    fi
-
-    cat > /opt/zigbee2mqtt/data/configuration.yaml <<CFGEOF
-homeassistant: false
-permit_join: true
-mqtt:
-  base_topic: zigbee2mqtt
-  server: mqtt://localhost
-serial:
-  port: ${ZIGBEE_PORT}
-  adapter: ezsp
-frontend:
-  enabled: false
-advanced:
-  log_level: warn
-  channel: 11
-CFGEOF
-    chown bugsi:bugsi /opt/zigbee2mqtt/data/configuration.yaml
-    log "Zigbee2MQTT configured (frontend disabled, serial: ${ZIGBEE_PORT})"
-fi
-
-# --- Zigbee2MQTT systemd service (always ensure it exists and is enabled) ---
-if ! systemctl is-enabled zigbee2mqtt &>/dev/null; then
-    log "Creating Zigbee2MQTT systemd service..."
-    cat > /etc/systemd/system/zigbee2mqtt.service <<'SVCEOF'
-[Unit]
-Description=zigbee2mqtt
-After=network.target
-
-[Service]
-Environment=NODE_ENV=production
-Type=simple
-ExecStart=/usr/bin/node index.js
-WorkingDirectory=/opt/zigbee2mqtt
-StandardOutput=inherit
-StandardError=inherit
-Restart=always
-RestartSec=10s
-User=bugsi
-
-[Install]
-WantedBy=multi-user.target
-SVCEOF
-
+# --- Migration: remove old zigbee2mqtt + mosquitto if present ---
+if systemctl is-enabled zigbee2mqtt &>/dev/null; then
+    log "Removing old zigbee2mqtt service (replaced by zigpy)..."
+    systemctl stop zigbee2mqtt 2>/dev/null || true
+    systemctl disable zigbee2mqtt 2>/dev/null || true
+    rm -f /etc/systemd/system/zigbee2mqtt.service
     systemctl daemon-reload
-    systemctl enable zigbee2mqtt
-    systemctl start zigbee2mqtt
-    log "Zigbee2MQTT service enabled and started"
 fi
 
-sync_barrier "Zigbee2MQTT"
+if dpkg -l mosquitto 2>/dev/null | grep -q "^ii"; then
+    log "Removing Mosquitto (no longer needed for Zigbee)..."
+    systemctl stop mosquitto 2>/dev/null || true
+    systemctl disable mosquitto 2>/dev/null || true
+    apt-get $APT_OPTS remove -y mosquitto mosquitto-clients 2>/dev/null || true
+fi
+
+if [[ -d /opt/zigbee2mqtt ]]; then
+    log "Old zigbee2mqtt directory found at /opt/zigbee2mqtt"
+    warn "You can remove it manually: rm -rf /opt/zigbee2mqtt"
+    warn "Note: existing Zigbee devices will need to be re-paired with zigpy"
+fi
+
+sync_barrier "Zigbee (zigpy)"
 echo
 
 # =============================================================================
@@ -447,7 +413,7 @@ echo
 log "--- [5/6] LTE Modem (Quectel ECM) ---"
 
 # Install minicom for AT command access
-apt-get install -y minicom 2>/dev/null || true
+apt-get $APT_OPTS install -y minicom 2>/dev/null || true
 
 # Disable ModemManager (conflicts with ECM)
 if systemctl is-enabled ModemManager.service 2>/dev/null | grep -q "enabled"; then
@@ -734,7 +700,7 @@ grep -E "^(dtoverlay=genx320|dtoverlay=arducam-64mp|dtparam=i2c_arm)" "$CONFIG_T
 done
 echo
 log "Services enabled:"
-for svc in mosquitto zigbee2mqtt bugsi-network-priority; do
+for svc in bugsi-network-priority; do
     status=$(systemctl is-enabled "$svc" 2>/dev/null || echo "not found")
     echo "  $svc: $status"
 done
@@ -746,8 +712,8 @@ log "After reboot, verify with:"
 echo "  dkms status                    # Prophesee drivers"
 echo "  rpicam-still --list-cameras    # ArduCam 64MP"
 echo "  wp5                            # Witty Pi 5"
-echo "  systemctl status zigbee2mqtt   # Zigbee2MQTT"
-echo "  systemctl status mosquitto     # MQTT broker"
+echo "  ls /dev/serial/by-id/*Zigbee*   # Zigbee coordinator"
+echo "  ls /var/cache/bugsi/           # zigpy database"
 echo "  ip addr show usb0             # LTE interface"
 echo "  ip route                       # Route metrics"
 echo

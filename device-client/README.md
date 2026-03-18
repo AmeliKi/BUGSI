@@ -29,6 +29,9 @@ export BUGSI_API_URL=http://localhost:8000/api/device-data
 # Show current configuration
 .venv/bin/bugsi config
 
+# Fetch latest config from SaaS backend
+.venv/bin/bugsi config-pull
+
 # Show buffer statistics and power mode
 .venv/bin/bugsi status
 
@@ -56,6 +59,67 @@ Credentials can be provided via (highest to lowest priority):
 3. Credentials file: `/mnt/usb/bugsi/credentials.json`
 
 If no credentials are configured, `bugsi run` will stay alive and wait (polling every 10s) until credentials become available. Other commands will exit with an error.
+
+### Local Web Server
+
+The daemon includes a built-in web server (aiohttp) that starts automatically with `bugsi run`. There is no separate command to start it.
+
+```bash
+# Start the daemon (web server included)
+export BUGSI_MOCK_HARDWARE=true
+export BUGSI_API_KEY=test
+export BUGSI_API_URL=http://localhost:8000/api/device-data
+.venv/bin/bugsi run --mock --verbose
+```
+
+**Note:** Credentials (`BUGSI_API_KEY` / `BUGSI_API_URL`) are required — without them the daemon waits indefinitely and never starts the web server. For local development any dummy values work.
+
+Once running, open `http://localhost:8080` in a browser (or `http://<device-ip>:8080` from another machine on the same network).
+
+The web UI has four tabs:
+
+- **Camera** — live MJPEG stream and snapshot
+- **Gallery** — detection images (crops and frames)
+- **Config** — view and edit device configuration (pushes changes to SaaS)
+- **Status** — buffer stats, power mode, WLAN state
+
+#### Verify the Web Server Is Running
+
+Look for this log line in verbose output:
+
+```
+Web server started on 0.0.0.0:8080
+```
+
+Or from another terminal:
+
+```bash
+curl http://localhost:8080/api/status
+```
+
+#### Troubleshooting
+
+If the web server doesn't start:
+
+1. **No credentials** — without `BUGSI_API_KEY` / `BUGSI_API_URL` the daemon loops waiting for credentials and never reaches the web server. Set dummy values for local dev (see above)
+2. **Night mode shuts down immediately** — the scheduler checks `power.night_mode_enabled` (default: `true`) with `awake_start_hour: 7` / `awake_end_hour: 21` (UTC). If the current UTC hour is outside this range, the daemon shuts down instantly. Fix: disable night mode in `config/default.json` (`"night_mode_enabled": false`) or adjust the awake hours
+3. **Daemon not running** — the web server only runs inside `bugsi run`, not with other commands like `bugsi telemetry`
+4. **`webserver.enabled` is `false`** — check with `bugsi config` and look for the `webserver` section
+5. **Battery mode + RTC wake** — if `power.battery=true` and the device woke via RTC, WLAN stays off and the web server is skipped. On a cold boot with battery mode, WLAN auto-disables after `power.wlan_timeout_minutes` (default: 10 min) of inactivity
+6. **Port conflict** — check with `lsof -i :8080`
+7. **Backup path crash on macOS** — the default `storage.backup_path` is `/mnt/usb/bugsi/backup/` which doesn't exist on macOS. If the daemon crashes with `OSError: Read-only file system: '/mnt'`, set `"backup_path": "/tmp/bugsi_backup/"` in `config/default.json`
+
+#### API Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/config` | Current configuration + version |
+| `PUT` | `/api/config` | Update config (auto-pushes to SaaS) |
+| `GET` | `/api/status` | Device status (buffer, power mode, WLAN) |
+| `GET` | `/api/camera/snapshot` | Single JPEG snapshot |
+| `GET` | `/api/camera/stream` | MJPEG live stream |
+| `GET` | `/api/gallery` | List detections (`?limit=50&offset=0`) |
+| `GET` | `/api/gallery/image/{subdir}/{filename}` | Serve detection image (crops/frames) |
 
 ### Run Tests
 
@@ -118,6 +182,7 @@ docker compose exec device-client bash
 docker compose exec device-client bugsi telemetry --mock
 docker compose exec device-client bugsi status --mock
 docker compose exec device-client bugsi config
+docker compose exec device-client bugsi config-pull --mock
 docker compose exec device-client bugsi upload --mock
 ```
 
@@ -269,11 +334,13 @@ bugsi test-hardware schedule
 
 ## Pairing a Zigbee Temperature & Humidity Sensor
 
-The BUGSI device supports any Zigbee temperature/humidity sensor compatible with [Zigbee2MQTT](https://www.zigbee2mqtt.io/supported-devices/), for example:
+The BUGSI device communicates directly with Zigbee sensors via [zigpy](https://github.com/zigpy/zigpy) + [bellows](https://github.com/zigpy/bellows) (no Node.js, no zigbee2mqtt, no MQTT broker). Any standard Zigbee temperature/humidity sensor should work, for example:
 
 - SONOFF SNZB-02WD
 - Tuya ZTH01 / ZTH02
 - Aqara WSDCGQ11LM
+
+The coordinator is a Sonoff Zigbee 3.0 USB Dongle Plus V2 (Silicon Labs EZSP).
 
 ### Pair via CLI
 
@@ -281,7 +348,7 @@ The BUGSI device supports any Zigbee temperature/humidity sensor compatible with
 bugsi pair-zigbee
 ```
 
-This powers on the Zigbee stack, opens a 120-second pairing window, and listens for new devices. Put your sensor into pairing mode (usually hold the button for 5 seconds) while the window is open.
+This powers on the USB dongle, starts the zigpy controller, opens a 120-second pairing window, and listens for new devices. Put your sensor into pairing mode (usually hold the button for 5 seconds) while the window is open.
 
 Options:
 
@@ -329,7 +396,7 @@ bugsi pair-zigbee --mock
 bugsi test-hardware zigbee
 ```
 
-This powers on the USB dongle and Zigbee2MQTT services, queries the bridge for all paired devices, waits for sensor data, and powers everything off. Example output:
+This powers on the USB dongle, starts the zigpy controller, queries all paired devices, waits for sensor data, and powers everything off. Example output:
 
 ```
 === Zigbee Network ===
@@ -342,26 +409,6 @@ This powers on the USB dongle and Zigbee2MQTT services, queries the bridge for a
   OK
 ```
 
-### Manually via MQTT
-
-On the Raspberry Pi, without the daemon:
-
-```bash
-# Start services
-sudo systemctl start mosquitto
-sudo systemctl start zigbee2mqtt
-
-# List all paired devices (one-shot)
-mosquitto_sub -t "zigbee2mqtt/bridge/devices" -C 1 | python3 -m json.tool
-
-# Or request the device list explicitly
-mosquitto_sub -t "zigbee2mqtt/bridge/response/devices" -C 1 &
-mosquitto_pub -t "zigbee2mqtt/bridge/request/devices" -m ""
-
-# Watch live sensor data (replace with your sensor's friendly name)
-mosquitto_sub -t "zigbee2mqtt/climate_sensor" -v
-```
-
 ### Troubleshooting
 
 If a sensor shows `OFFLINE` or no data arrives:
@@ -369,8 +416,10 @@ If a sensor shows `OFFLINE` or no data arrives:
 - **Check battery** — the sensor's coin cell may be depleted (check `sensor_battery` in telemetry)
 - **Check range** — move the sensor closer to the ZBDongle-E USB stick
 - **Re-pair the sensor**: `bugsi pair-zigbee --rename climate_sensor`
-- **Check Zigbee2MQTT logs**: `sudo journalctl -u zigbee2mqtt -f`
 - **Check USB dongle is detected**: `lsusb | grep -i "cp21\|ch91\|silicon"`
+- **Check serial port**: `ls /dev/serial/by-id/*Zigbee*`
+- **Check zigpy database**: `ls -la /var/cache/bugsi/zigbee.db`
+- **Check name mapping**: `cat /var/cache/bugsi/zigbee_names.json`
 
 ## Configuration
 
@@ -395,11 +444,20 @@ Configuration is managed remotely via the SaaS backend. The device polls for upd
 | `image_capture.enabled` | true | Enable the image capture pipeline |
 | `image_capture.cooldown_seconds` | 10 | Cooldown between detections |
 | `image_capture.zigbee_warmup_seconds` | 5 | Wait for Zigbee data after power on |
-| `zigbee.device_name` | "climate_sensor" | Zigbee2MQTT friendly name of the sensor |
+| `zigbee.serial_port` | "auto" | Zigbee coordinator serial port (or "auto") |
+| `zigbee.adapter` | "ezsp" | Zigbee radio adapter type |
+| `zigbee.device_name` | "climate_sensor" | Friendly name of the climate sensor |
+| `zigbee.database_path` | /var/cache/bugsi/zigbee.db | zigpy network database |
+| `zigbee.network_channel` | 11 | Zigbee network channel |
 | `storage.buffer_db_path` | /mnt/usb/bugsi/buffer.db | SQLite database path |
 | `storage.backup_path` | /mnt/usb/bugsi/backup/ | Backup directory |
 | `storage.backup_interval_minutes` | 60 | How often to backup DB |
 | `storage.cleanup_after_days` | 30 | Delete synced records after N days |
+| `webserver.enabled` | true | Enable the local web server |
+| `webserver.host` | "0.0.0.0" | Web server bind address |
+| `webserver.port` | 8080 | Web server port |
+| `webserver.camera_fps` | 2 | Live stream frames per second |
+| `webserver.detections_dir` | /mnt/usb/bugsi/detections | Directory for detection images |
 
 ## Architecture
 

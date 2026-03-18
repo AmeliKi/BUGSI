@@ -34,8 +34,10 @@ Current status for hub 2 [1d6b:0002 Linux root hub, USB 2.00, 1 port, ppps]
 
 
 def _make_sensor(**kwargs) -> ZigbeeClimateSensor:
-    """Create a sensor without triggering MQTT (we only test USB detection)."""
-    return ZigbeeClimateSensor(**kwargs)
+    """Create a sensor without triggering zigpy (we only test USB detection)."""
+    defaults = {"serial_port": "auto", "adapter": "ezsp"}
+    defaults.update(kwargs)
+    return ZigbeeClimateSensor(**defaults)
 
 
 def _mock_subprocess(stdout: str, returncode: int = 0):

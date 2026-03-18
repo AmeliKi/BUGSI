@@ -91,6 +91,7 @@ class SixfabLteModem(LteModemInterface):
         self._powered = False
         self._gpio_chip = None
         self._gpio_line = None
+        self._serial_conn = None  # persistent serial connection
 
     async def power_on(self) -> None:
         if self._powered:
@@ -126,6 +127,12 @@ class SixfabLteModem(LteModemInterface):
                 MODEM_PORT_RETRY_TIMEOUT,
             )
             return
+
+        # Open persistent serial connection
+        import serial
+        self._serial_conn = serial.Serial(
+            self._active_port, MODEM_BAUD_RATE, timeout=2
+        )
 
         # Verify modem responds to AT (retry a few times — port may appear
         # before the modem firmware is fully ready)
@@ -183,6 +190,14 @@ class SixfabLteModem(LteModemInterface):
             await asyncio.sleep(2.0)
         except Exception:
             logger.warning("AT+QPOWD failed, forcing hardware power off")
+
+        # Close persistent serial connection
+        if self._serial_conn is not None:
+            try:
+                self._serial_conn.close()
+            except Exception:
+                pass
+            self._serial_conn = None
 
         # Hardware power cutoff via GPIO
         if self._gpio_line is not None:
@@ -263,18 +278,22 @@ class SixfabLteModem(LteModemInterface):
         )
 
     def _send_at_sync(self, command: str) -> str:
-        """Synchronous AT command via serial port."""
-        import serial
+        """Synchronous AT command via persistent serial connection."""
+        ser = self._serial_conn
+        if ser is None or not ser.is_open:
+            import serial
+            port = self._active_port or self._serial_port or MODEM_SERIAL_PORT
+            self._serial_conn = serial.Serial(port, MODEM_BAUD_RATE, timeout=2)
+            ser = self._serial_conn
 
-        port = self._active_port or self._serial_port or MODEM_SERIAL_PORT
-        with serial.Serial(port, MODEM_BAUD_RATE, timeout=2) as ser:
-            ser.write(f"{command}\r\n".encode())
-            response = ""
-            while True:
-                line = ser.readline().decode(errors="replace")
-                if not line:
-                    break
-                response += line
-                if "OK" in line or "ERROR" in line:
-                    break
-            return response
+        ser.reset_input_buffer()
+        ser.write(f"{command}\r\n".encode())
+        response = ""
+        while True:
+            line = ser.readline().decode(errors="replace")
+            if not line:
+                break
+            response += line
+            if "OK" in line or "ERROR" in line:
+                break
+        return response

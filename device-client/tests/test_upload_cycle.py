@@ -114,6 +114,27 @@ class TestUploadCycle:
         client.close()
 
     @respx.mock
+    async def test_config_polled_after_telemetry_and_thumbnail(self, buffer_store, mock_hardware, config_manager, tmp_path):
+        """Config is polled after telemetry upload and again after thumbnail upload."""
+        upload, client, telemetry = await self._setup(buffer_store, mock_hardware, config_manager, tmp_path)
+
+        await buffer_store.push_telemetry({"timestamp": "2026-03-07T12:00:00Z", "battery_soc": 75.0})
+
+        respx.post("http://test:8000/api/device-data/telemetry").mock(
+            return_value=httpx.Response(201, json=[{"id": "abc"}])
+        )
+        config_route = respx.get("http://test:8000/api/device-data/config").mock(
+            return_value=httpx.Response(200, json={"version": 1, "config": {}, "has_update": False})
+        )
+
+        await upload.run(last_battery_soc=80.0)
+
+        # Config should be polled twice: once after telemetry, once after thumbnail
+        assert config_route.call_count == 2
+
+        client.close()
+
+    @respx.mock
     async def test_upload_error_does_not_lose_data(self, buffer_store, mock_hardware, config_manager, tmp_path):
         upload, client, telemetry = await self._setup(buffer_store, mock_hardware, config_manager, tmp_path)
 

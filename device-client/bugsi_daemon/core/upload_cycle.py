@@ -60,14 +60,17 @@ class UploadCycle:
             # Upload telemetry
             await self._upload_telemetry()
 
+            # Get latest config after telemetry upload
+            await self._poll_config()
+
             # Upload only the latest thumbnail
             await self._upload_latest_thumbnail()
 
-            # Push local config changes first
-            await self._push_config_if_needed()
-
-            # Poll config
+            # Get latest config after thumbnail upload
             await self._poll_config()
+
+            # Push local config changes if any
+            await self._push_config_if_needed()
 
             logger.info("Upload cycle completed successfully")
             return True

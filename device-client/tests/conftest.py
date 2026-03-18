@@ -99,9 +99,11 @@ def config_manager(tmp_path, monkeypatch):
             "energy_saving_wlan_minutes": 10,
         },
         "zigbee": {
-            "mqtt_host": "localhost",
-            "mqtt_port": 1883,
+            "serial_port": "auto",
+            "adapter": "ezsp",
             "device_name": "SNZB-02WD",
+            "database_path": str(tmp_path / "zigbee.db"),
+            "network_channel": 11,
         },
         "storage": {
             "buffer_db_path": str(tmp_path / "buffer.db"),
