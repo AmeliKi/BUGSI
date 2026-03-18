@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from bugsi_daemon.buffer.backup import BufferBackup
 from bugsi_daemon.buffer.store import BufferStore
 from bugsi_daemon.config import ConfigManager
+from bugsi_daemon.core.image_capture_pipeline import ImageCapturePipeline
 from bugsi_daemon.core.mock_thumbnail_generator import MockThumbnailGenerator
 from bugsi_daemon.core.power_manager import PowerManager
 from bugsi_daemon.core.telemetry_collector import TelemetryCollector
@@ -27,6 +28,7 @@ class Scheduler:
         buffer: BufferStore,
         backup: BufferBackup,
         thumbnail_generator: MockThumbnailGenerator | None = None,
+        image_pipeline: ImageCapturePipeline | None = None,
         web_server=None,
     ):
         self._config = config
@@ -36,6 +38,7 @@ class Scheduler:
         self._buffer = buffer
         self._backup = backup
         self._thumbnail_gen = thumbnail_generator
+        self._image_pipeline = image_pipeline
         self._web_server = web_server
         self._running = False
         self._tasks: list[asyncio.Task] = []
@@ -51,6 +54,10 @@ class Scheduler:
             asyncio.create_task(self._upload_loop(), name="upload"),
             asyncio.create_task(self._backup_loop(), name="backup"),
         ]
+        if self._image_pipeline:
+            self._tasks.append(
+                asyncio.create_task(self._image_capture_loop(), name="image_capture")
+            )
         if self._web_server:
             self._tasks.append(
                 asyncio.create_task(self._webserver_loop(), name="webserver")
@@ -83,6 +90,15 @@ class Scheduler:
         finally:
             await self._web_server.stop()
 
+    async def _image_capture_loop(self) -> None:
+        """Run the image capture pipeline (event camera detection → capture)."""
+        try:
+            await self._image_pipeline.run()
+        except asyncio.CancelledError:
+            pass
+        finally:
+            await self._image_pipeline.stop()
+
     async def shutdown(self) -> None:
         """Graceful shutdown: stop loops, prepare power off."""
         await self.stop()
@@ -110,7 +126,9 @@ class Scheduler:
 
             # Collect telemetry (includes pictures_taken count)
             extra = {}
-            if self._thumbnail_gen:
+            if self._image_pipeline:
+                extra["pictures_taken"] = self._image_pipeline.pictures_taken
+            elif self._thumbnail_gen:
                 extra["pictures_taken"] = self._thumbnail_gen.pictures_taken
 
             try:

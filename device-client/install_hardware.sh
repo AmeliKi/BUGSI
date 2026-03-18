@@ -184,6 +184,15 @@ else
     cmake --build . --config Release -- -j 4
     make install
     ldconfig
+
+    # Verify Python bindings are importable (venv uses --system-site-packages)
+    if python3 -c "from metavision_core.event_io import EventsIterator; print('OK')" 2>/dev/null; then
+        log "OpenEB Python bindings verified"
+    else
+        warn "OpenEB Python bindings not importable from system Python"
+        warn "The bugsi venv uses --system-site-packages, so ensure OpenEB's"
+        warn "Python packages are installed for $(python3 --version 2>&1)"
+    fi
 fi
 
 # Disable camera auto-detect (conflicts with manual overlays)
@@ -205,6 +214,9 @@ if [[ ! -f /etc/profile.d/prophesee.sh ]]; then
     cat > /etc/profile.d/prophesee.sh <<'ENVEOF'
 export PSEE_VAR_V4L2_BSIZE=1
 export V4L2_HEAP=vidbuf_cached
+# Suppress libcamera probe errors for the GenX320 (event cameras lack
+# the mandatory V4L2 controls that libcamera's PISP handler expects).
+export LIBCAMERA_LOG_LEVELS="*:WARN"
 ENVEOF
     chmod 644 /etc/profile.d/prophesee.sh
     log "Created /etc/profile.d/prophesee.sh"
@@ -221,8 +233,9 @@ echo
 
 log "--- [2/6] ArduCam 64MP Hawkeye ---"
 
-if [[ -f /boot/firmware/overlays/arducam-64mp.dtbo ]] && grep -qF "dtoverlay=arducam-64mp" "$CONFIG_TXT" 2>/dev/null; then
-    log "ArduCam 64MP already configured — skipping"
+ARDUCAM_IPA="/usr/share/libcamera/ipa/rpi/pisp/arducam_64mp.json"
+if [[ -f /boot/firmware/overlays/arducam-64mp.dtbo ]] && grep -qE "^dtoverlay=arducam-64mp(,cam1)?$" "$CONFIG_TXT" 2>/dev/null && [[ -f "$ARDUCAM_IPA" ]]; then
+    log "ArduCam 64MP already configured (driver + IPA) — skipping"
 else
     log "Downloading ArduCam install script..."
     wget -qO /tmp/install_pivariety_pkgs.sh \
@@ -237,9 +250,15 @@ else
     log "Installing 64MP kernel driver..."
     /tmp/install_pivariety_pkgs.sh -p 64mp_pi_hawk_eye_kernel_driver
 
-    # cam1 is default for arducam-64mp overlay — only add if overlay file exists
+    log "Installing ArduCam libcamera IPA tuning file..."
+    /tmp/install_pivariety_pkgs.sh -p libcamera
+
+    # Explicit cam1 so libcamera's PISP handler only scans CSI port 1
+    # (GenX320 is on cam0 and must not be enumerated by libcamera).
+    # Clean up old entry without explicit port from earlier installs.
+    sed -i '/^dtoverlay=arducam-64mp$/d' "$CONFIG_TXT" 2>/dev/null || true
     if [[ -f /boot/firmware/overlays/arducam-64mp.dtbo ]]; then
-        ensure_config_line "dtoverlay=arducam-64mp"
+        ensure_config_line "dtoverlay=arducam-64mp,cam1"
     else
         warn "arducam-64mp.dtbo not found in /boot/firmware/overlays/ — skipping dtoverlay"
         warn "Re-run this script after ArduCam kernel driver installs successfully"

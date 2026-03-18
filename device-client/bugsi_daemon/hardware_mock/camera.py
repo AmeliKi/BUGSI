@@ -6,12 +6,13 @@ import logging
 import cv2
 import numpy as np
 
-from bugsi_daemon.hardware.base import CameraInterface
+from bugsi_daemon.hardware.base import StillCameraInterface, register_still_camera
 
 logger = logging.getLogger(__name__)
 
 
-class MockCamera(CameraInterface):
+@register_still_camera("mock")
+class MockCamera(StillCameraInterface):
     """Generates synthetic frames with random fake insects."""
 
     def __init__(

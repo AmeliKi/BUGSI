@@ -14,6 +14,8 @@ from bugsi_daemon.hardware_mock.lte import MockLteModem
 from bugsi_daemon.hardware_mock.storage import MockStorage
 from bugsi_daemon.hardware_mock.system import MockSystem
 from bugsi_daemon.hardware_mock.power_mgmt import MockPowerManagement
+from bugsi_daemon.hardware_mock.event_camera import MockEventCamera
+from bugsi_daemon.hardware_mock.wlan import MockWlan
 
 
 @pytest.fixture
@@ -32,6 +34,8 @@ def mock_hardware():
         "storage": MockStorage(),
         "system": MockSystem(),
         "power_mgmt": MockPowerManagement(),
+        "event_camera": MockEventCamera(),
+        "wlan": MockWlan(),
     }
 
 
@@ -52,9 +56,53 @@ def config_manager(tmp_path, monkeypatch):
     monkeypatch.delenv("BUGSI_API_KEY", raising=False)
     monkeypatch.delenv("BUGSI_API_URL", raising=False)
     default_config = {
+        "still_camera": {
+            "type": "mock",
+            "resolution_width": 640,
+            "resolution_height": 480,
+            "camera_id": 1,
+            "autofocus_mode": "continuous",
+            "jpeg_quality": 85,
+        },
+        "event_camera": {
+            "type": "mock",
+            "device_path": "/dev/video0",
+            "event_threshold": 500,
+            "detection_window_ms": 50,
+            "min_cluster_area": 100,
+        },
+        "image_capture": {
+            "enabled": True,
+            "cooldown_seconds": 0,
+            "zigbee_warmup_seconds": 0,
+            "save_dir": str(tmp_path / "detections"),
+            "thumbnail_width": 160,
+            "thumbnail_height": 120,
+            "save_full_resolution": True,
+        },
         "telemetry": {"collection_interval_minutes": 5},
-        "upload": {"interval_minutes": 60, "max_batch_size": 100, "battery_soc_threshold": 20},
-        "power": {"night_mode_enabled": True, "night_start_hour": 22, "night_end_hour": 6},
+        "upload": {
+            "interval_minutes": 60,
+            "max_batch_size": 100,
+            "battery_soc_threshold": 20,
+            "ota_check_enabled": True,
+        },
+        "power": {
+            "night_mode_enabled": True,
+            "night_mode_type": "fixed",
+            "awake_start_hour": 7,
+            "awake_end_hour": 21,
+            "modem_always_off": True,
+            "battery": False,
+            "wlan_timeout_minutes": 10,
+            "energy_saving": False,
+            "energy_saving_wlan_minutes": 10,
+        },
+        "zigbee": {
+            "mqtt_host": "localhost",
+            "mqtt_port": 1883,
+            "device_name": "SNZB-02WD",
+        },
         "storage": {
             "buffer_db_path": str(tmp_path / "buffer.db"),
             "backup_path": str(tmp_path / "backup"),

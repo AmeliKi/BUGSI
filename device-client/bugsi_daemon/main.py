@@ -49,6 +49,14 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("status", help="Show buffer stats, config version, power mode", parents=[shared])
     subparsers.add_parser("config", help="Show current configuration", parents=[shared])
 
+    test_hw = subparsers.add_parser(
+        "test-hardware", help="Test individual hardware subsystems", parents=[shared],
+    )
+    test_hw.add_argument(
+        "subsystem", nargs="?", default=None,
+        help="Subsystem to test: cameras, climate, zigbee, lte, power, schedule, sensors, capture, all",
+    )
+
     return parser
 
 
@@ -88,6 +96,7 @@ async def run_daemon(config: ConfigManager, mock: bool) -> None:
         buffer=components["buffer"],
         backup=components["backup"],
         thumbnail_generator=components.get("thumbnail_generator"),
+        image_pipeline=components.get("image_pipeline"),
         web_server=components.get("web_server"),
     )
 
@@ -145,6 +154,8 @@ def main() -> None:
         if not config.is_configured:
             asyncio.run(_wait_for_credentials(config))
         asyncio.run(run_daemon(config, mock))
+    elif args.command == "test-hardware":
+        asyncio.run(cli.cmd_test_hardware(config, mock, subsystem=args.subsystem))
     elif args.command in commands:
         if not config.is_configured:
             print(

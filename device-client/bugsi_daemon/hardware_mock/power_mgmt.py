@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import random
 from datetime import datetime, timezone
 
 from bugsi_daemon.hardware.base import PowerManagementInterface
@@ -9,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 
 class MockPowerManagement(PowerManagementInterface):
-    """Mock Witty Pi 4 Mini - logs actions instead of real I2C commands."""
+    """Mock Witty Pi 5 - logs actions instead of real hardware commands."""
 
     def __init__(self):
         self._next_wakeup: datetime | None = None
@@ -38,6 +39,16 @@ class MockPowerManagement(PowerManagementInterface):
     async def get_wakeup_reason(self) -> str:
         logger.info("Mock wakeup reason: cold_boot")
         return "cold_boot"
+
+    async def get_temperature(self) -> float:
+        temp = round(random.uniform(20.0, 30.0), 1)
+        logger.debug("Mock Witty Pi temperature: %.1f°C", temp)
+        return temp
+
+    async def get_input_voltage(self) -> float:
+        voltage = round(random.uniform(11.5, 12.5), 2)
+        logger.debug("Mock Witty Pi input voltage: %.2fV", voltage)
+        return voltage
 
     async def shutdown(self) -> None:
         logger.info("Mock Witty Pi shutdown")

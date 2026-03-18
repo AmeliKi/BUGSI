@@ -51,11 +51,17 @@ class UploadCycle:
             # Update LTE signal info
             await self._telemetry.update_lte_signal()
 
+            # OTA check first (priority over data upload)
+            if self._config.get("upload.ota_check_enabled", True):
+                ota_applied = await self._check_and_apply_ota()
+                if ota_applied:
+                    return True
+
             # Upload telemetry
             await self._upload_telemetry()
 
-            # Upload thumbnails
-            await self._upload_thumbnails()
+            # Upload only the latest thumbnail
+            await self._upload_latest_thumbnail()
 
             # Push local config changes first
             await self._push_config_if_needed()
@@ -71,6 +77,23 @@ class UploadCycle:
             return False
         finally:
             await self._power_manager.set_mode(PowerMode.ACTIVE)
+
+    async def _check_and_apply_ota(self) -> bool:
+        """Check for OTA update. Returns True if update was applied."""
+        try:
+            result = self._client.check_ota()
+            if result.get("has_update"):
+                deployment = result.get("deployment", result)
+                logger.info("OTA update available, applying...")
+                ota_result = self._client.process_ota_update(deployment)
+                if ota_result["success"]:
+                    logger.info("OTA applied successfully, restart may be required")
+                    return True
+                else:
+                    logger.error("OTA failed: %s", ota_result.get("error"))
+        except Exception:
+            logger.exception("OTA check failed")
+        return False
 
     async def _upload_telemetry(self) -> None:
         max_batch = self._config.get("upload.max_batch_size", 100)
@@ -89,27 +112,24 @@ class UploadCycle:
         except Exception:
             logger.exception("Failed to upload telemetry")
 
-    async def _upload_thumbnails(self) -> None:
-        pending = await self._buffer.get_pending_thumbnails(limit=50)
+    async def _upload_latest_thumbnail(self) -> None:
+        """Upload only the single most recent unsynced thumbnail."""
+        pending = await self._buffer.get_pending_thumbnails(limit=1)
         if not pending:
             return
 
-        uploaded_ids = []
-        for row_id, file_path, timestamp in pending:
-            try:
-                with open(file_path, "rb") as f:
-                    image_data = f.read()
-                self._client.upload_thumbnail(image_data, timestamp)
-                uploaded_ids.append(row_id)
-            except FileNotFoundError:
-                logger.warning("Thumbnail file not found: %s, marking as synced", file_path)
-                uploaded_ids.append(row_id)
-            except Exception:
-                logger.exception("Failed to upload thumbnail %s", file_path)
-
-        if uploaded_ids:
-            await self._buffer.mark_synced("thumbnail_buffer", uploaded_ids)
-            logger.info("Uploaded %d thumbnails", len(uploaded_ids))
+        row_id, file_path, timestamp = pending[0]
+        try:
+            with open(file_path, "rb") as f:
+                image_data = f.read()
+            self._client.upload_thumbnail(image_data, timestamp)
+            await self._buffer.mark_synced("thumbnail_buffer", [row_id])
+            logger.info("Uploaded latest thumbnail: %s", file_path)
+        except FileNotFoundError:
+            logger.warning("Thumbnail file not found: %s, marking as synced", file_path)
+            await self._buffer.mark_synced("thumbnail_buffer", [row_id])
+        except Exception:
+            logger.exception("Failed to upload thumbnail %s", file_path)
 
     async def _push_config_if_needed(self) -> None:
         if not self._config.has_unpushed_changes:

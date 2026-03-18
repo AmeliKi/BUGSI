@@ -1,5 +1,3 @@
- bugsi upload --mock --api-key bugsi_taPcft7PGtPKo8bZAm4uqWwgmEQqRIDxhBvPSkELRLl3vsJc --api-url http://backend:8000/api/device-data
-
 # BUGSI Device Client
 
 Daemon for Raspberry Pi insect detection devices. Collects sensor data, buffers locally in SQLite, and periodically uploads to the BUGSI SaaS backend via LTE.
@@ -170,6 +168,159 @@ sudo systemctl status bugsi-daemon
 sudo journalctl -u bugsi-daemon -f
 ```
 
+## Testing on Real Hardware
+
+The `test-hardware` command lets you test individual subsystems without running the full daemon.
+
+### Available Subsystems
+
+```bash
+bugsi test-hardware cameras       # Still camera (Arducam) + event camera (Prophesee)
+bugsi test-hardware climate       # Zigbee sensor power on → read → power off
+bugsi test-hardware zigbee        # Full Zigbee network scan: list paired devices + read sensor data
+bugsi test-hardware lte           # LTE modem power on → wait for network → signal info
+bugsi test-hardware power         # Witty Pi RTC time, wakeup reason, temperature, voltage
+bugsi test-hardware schedule      # Show computed active hours and night mode state
+bugsi test-hardware sensors       # Storage, system, battery, solar readings
+bugsi test-hardware capture       # Run one full image capture pipeline sequence
+bugsi test-hardware all           # Run all of the above
+```
+
+Use `--mock` to test with mock hardware on a dev machine:
+
+```bash
+bugsi test-hardware all --mock
+```
+
+### Testing RTC Sleep/Wake Without Waiting for Sunrise
+
+**Option 1: Fixed mode with a short window.** Set the awake window around the current time so the device schedules a shutdown soon:
+
+```json
+{
+  "power": {
+    "night_mode_type": "fixed",
+    "awake_start_hour": 14,
+    "awake_end_hour": 15
+  }
+}
+```
+
+**Option 2: Override wakeup directly via `wp5` CLI:**
+
+```bash
+# Schedule shutdown in 2 minutes, wakeup in 5 minutes
+wp5 set shutdown_time "18 14:33:00"
+wp5 set startup_time "18 14:35:00"
+```
+
+**Option 3: Sunrise/sunset with large offsets** to shift the active window to predictable times:
+
+```json
+{
+  "power": {
+    "night_mode_type": "sunrise_sunset",
+    "location_lat": 48.2082,
+    "location_lon": 16.3738,
+    "sunrise_offset_minutes": -300,
+    "sunset_offset_minutes": 300
+  }
+}
+```
+
+**Option 4: Just check the computed schedule** without triggering any sleep:
+
+```bash
+bugsi test-hardware schedule
+```
+
+### Step-by-Step Real Hardware Test
+
+1. SSH into the Raspberry Pi and deploy the code
+2. Test read-only sensors first (no side effects):
+   ```bash
+   bugsi test-hardware sensors
+   bugsi test-hardware schedule
+   ```
+3. Test cameras (Prophesee on cam0, Arducam on cam1):
+   ```bash
+   bugsi test-hardware cameras
+   ```
+4. Test Zigbee connectivity (powers USB dongle on/off):
+   ```bash
+   bugsi test-hardware zigbee
+   ```
+5. Test LTE modem (powers modem on, waits for network):
+   ```bash
+   bugsi test-hardware lte
+   ```
+6. Test full capture pipeline (event detection → image → Zigbee → save):
+   ```bash
+   bugsi test-hardware capture
+   ```
+7. Test Witty Pi RTC:
+   ```bash
+   bugsi test-hardware power
+   ```
+8. Run the full daemon:
+   ```bash
+   bugsi run --verbose
+   ```
+
+## Checking Zigbee Sensor Connectivity
+
+### Via CLI
+
+```bash
+bugsi test-hardware zigbee
+```
+
+This powers on the USB dongle and Zigbee2MQTT services, queries the bridge for all paired devices, waits for sensor data, and powers everything off. Example output:
+
+```
+=== Zigbee Network ===
+  Powering on Zigbee stack...
+  Querying paired devices...
+  Found 1 device(s):
+    [ONLINE] SNZB-02WD (SONOFF SNZB-02D, EndDevice, 0x00124b00abcdef01)
+  Waiting 5s for sensor data from 'SNZB-02WD'...
+  Sensor data: {'temperature': 22.3, 'humidity': 55.1}
+  OK
+```
+
+### Manually via MQTT
+
+On the Raspberry Pi, without the daemon:
+
+```bash
+# Start services
+sudo systemctl start mosquitto
+sudo systemctl start zigbee2mqtt
+
+# List all paired devices (one-shot)
+mosquitto_sub -t "zigbee2mqtt/bridge/devices" -C 1 | python3 -m json.tool
+
+# Or request the device list explicitly
+mosquitto_sub -t "zigbee2mqtt/bridge/response/devices" -C 1 &
+mosquitto_pub -t "zigbee2mqtt/bridge/request/devices" -m ""
+
+# Watch live sensor data from a specific device
+mosquitto_sub -t "zigbee2mqtt/SNZB-02WD" -v
+```
+
+### Troubleshooting
+
+If a sensor shows `OFFLINE` or no data arrives:
+
+- **Check battery** in the SONOFF SNZB-02WD sensor
+- **Check range** — move the sensor closer to the ZBDongle-E USB stick
+- **Re-pair the sensor**: put Zigbee2MQTT in permit-join mode and reset the sensor (hold button for 5 seconds)
+  ```bash
+  mosquitto_pub -t "zigbee2mqtt/bridge/request/permit_join" -m '{"value": true, "time": 120}'
+  ```
+- **Check Zigbee2MQTT logs**: `sudo journalctl -u zigbee2mqtt -f`
+- **Check USB dongle is detected**: `lsusb | grep -i "cp21\|ch91\|silicon"`
+
 ## Configuration
 
 Configuration is managed remotely via the SaaS backend. The device polls for updates during each upload cycle. Default values in `config/default.json`:
@@ -180,9 +331,20 @@ Configuration is managed remotely via the SaaS backend. The device polls for upd
 | `upload.interval_minutes` | 60 | How often to upload to backend |
 | `upload.max_batch_size` | 100 | Max records per upload batch |
 | `upload.battery_soc_threshold` | 20 | Skip upload below this SoC % |
+| `upload.ota_check_enabled` | true | Check for OTA updates before uploading data |
 | `power.night_mode_enabled` | true | Shut down at night |
-| `power.night_start_hour` | 22 | Night mode start (UTC) |
-| `power.night_end_hour` | 6 | Night mode end (UTC) |
+| `power.night_mode_type` | "fixed" | "fixed" or "sunrise_sunset" |
+| `power.awake_start_hour` | 7 | Fixed mode: device wakes at this hour |
+| `power.awake_end_hour` | 21 | Fixed mode: device sleeps at this hour |
+| `power.location_lat` | null | Sunrise/sunset mode: latitude |
+| `power.location_lon` | null | Sunrise/sunset mode: longitude |
+| `power.energy_saving` | false | Disable WLAN and unused hardware |
+| `still_camera.type` | "arducam_64mp" | Still camera driver (registry name) |
+| `event_camera.type` | "prophesee_genx320" | Event camera driver (registry name) |
+| `image_capture.enabled` | true | Enable the image capture pipeline |
+| `image_capture.cooldown_seconds` | 10 | Cooldown between detections |
+| `image_capture.zigbee_warmup_seconds` | 5 | Wait for Zigbee data after power on |
+| `zigbee.device_name` | "SNZB-02WD" | Zigbee2MQTT friendly name of the sensor |
 | `storage.buffer_db_path` | /mnt/usb/bugsi/buffer.db | SQLite database path |
 | `storage.backup_path` | /mnt/usb/bugsi/backup/ | Backup directory |
 | `storage.backup_interval_minutes` | 60 | How often to backup DB |

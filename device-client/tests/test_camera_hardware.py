@@ -4,7 +4,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from bugsi_daemon.hardware.base import CameraInterface
+from bugsi_daemon.hardware.base import CameraInterface, StillCameraInterface
 from bugsi_daemon.hardware_mock.camera import MockCamera
 from bugsi_daemon.web.camera import WebCamera
 

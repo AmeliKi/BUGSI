@@ -1,27 +1,62 @@
 {
-  "camera": {
+  "still_camera": {
+    "type": "arducam_64mp",
     "resolution_width": 3840,
     "resolution_height": 2160,
     "camera_id": 0,
     "autofocus_mode": "continuous",
     "jpeg_quality": 85
   },
+  "event_camera": {
+    "type": "prophesee_genx320",
+    "device_path": "auto",
+    "event_threshold": 500,
+    "detection_window_ms": 50,
+    "min_cluster_area": 100
+  },
+  "image_capture": {
+    "enabled": true,
+    "cooldown_seconds": 10,
+    "zigbee_warmup_seconds": 5,
+    "save_dir": "/mnt/usb/bugsi/detections",
+    "thumbnail_width": 480,
+    "thumbnail_height": 360,
+    "save_full_resolution": true
+  },
   "telemetry": {
     "collection_interval_minutes": 5
+  },
+  "lte": {
+    "serial_port": null,
+    "gpio_pin": 26
   },
   "upload": {
     "interval_minutes": 60,
     "max_batch_size": 100,
-    "battery_soc_threshold": 20
+    "battery_soc_threshold": 20,
+    "ota_check_enabled": true
   },
   "power": {
     "night_mode_enabled": true,
-    "night_start_hour": 22,
-    "night_end_hour": 6,
+    "night_mode_type": "fixed",
+    "awake_start_hour": 7,
+    "awake_end_hour": 21,
+    "location_lat": null,
+    "location_lon": null,
+    "sunrise_offset_minutes": 0,
+    "sunset_offset_minutes": 0,
     "modem_always_off": true,
-    "zigbee_always_on": true,
     "battery": false,
-    "wlan_timeout_minutes": 10
+    "wlan_timeout_minutes": 10,
+    "energy_saving": false,
+    "energy_saving_wlan_minutes": 10
+  },
+  "zigbee": {
+    "mqtt_host": "localhost",
+    "mqtt_port": 1883,
+    "device_name": "SNZB-02WD",
+    "usb_hub": null,
+    "usb_port": null
   },
   "storage": {
     "buffer_db_path": "/mnt/usb/bugsi/buffer.db",

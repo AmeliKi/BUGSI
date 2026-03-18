@@ -64,6 +64,14 @@ echo "Copying default configuration..."
 mkdir -p "${INSTALL_DIR}/config"
 cp "${SCRIPT_DIR}/config/default.json" "${INSTALL_DIR}/config/"
 
+# Remove legacy service (renamed from bugsi-detector to bugsi-daemon)
+if systemctl list-unit-files bugsi-detector.service &>/dev/null; then
+    echo "Removing legacy bugsi-detector service..."
+    systemctl stop bugsi-detector 2>/dev/null || true
+    systemctl disable bugsi-detector 2>/dev/null || true
+    rm -f /etc/systemd/system/bugsi-detector.service
+fi
+
 # Install systemd service
 echo "Installing systemd service..."
 cp "${SCRIPT_DIR}/${SERVICE_NAME}.service" "/etc/systemd/system/"
