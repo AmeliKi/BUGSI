@@ -59,6 +59,26 @@ check "sync barriers between stages" \
 check "read-only mount detection" \
     bash -c "grep -q 'mounted read-only' '$SCRIPT_DIR/install_hardware.sh'"
 
+# 8. sync_barrier must not be disabled (no bare 'return' before 'sync' in function body)
+check "sync_barrier not disabled in install_hardware.sh" \
+    bash -c "awk '/^sync_barrier\(\)/,/^}/ { if (/^[[:space:]]*return[[:space:]]*$/) exit 1 }' '$SCRIPT_DIR/install_hardware.sh'"
+
+# 9. install.sh has sync_barrier and uses tmpfs
+check "install.sh has sync_barrier" \
+    bash -c "grep -q 'sync_barrier()' '$SCRIPT_DIR/install.sh'"
+check "install.sh calls sync_barrier" \
+    bash -c "[ \$(grep -c 'sync_barrier' '$SCRIPT_DIR/install.sh') -ge 3 ]"
+check "install.sh uses tmpfs for pip" \
+    bash -c "grep -q 'TMPDIR.*tmp' '$SCRIPT_DIR/install.sh'"
+
+# 10. Post-install .so verification
+check "install.sh verifies ELF headers" \
+    bash -c "grep -q 'ELF' '$SCRIPT_DIR/install.sh'"
+
+# 11. install_hardware.sh zigpy pip uses --no-cache-dir
+check "zigpy pip install uses --no-cache-dir" \
+    bash -c "grep 'zigpy' '$SCRIPT_DIR/install_hardware.sh' | grep 'pip.*install' | grep -q '\-\-no-cache-dir'"
+
 # Summary
 echo
 echo "$PASS passed, $FAIL failed out of $(( PASS + FAIL )) checks"

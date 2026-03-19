@@ -24,7 +24,6 @@ warn() { echo -e "\033[1;33m[WARN]\033[0m $*"; }
 err()  { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; }
 
 sync_barrier() {
-    return
     local stage="$1"
     sync
     if dmesg 2>/dev/null | tail -50 | grep -qi "ext4.*error"; then
@@ -351,7 +350,8 @@ fi
 BUGSI_VENV="/opt/bugsi/venv"
 if [[ -d "$BUGSI_VENV" ]]; then
     log "Ensuring zigpy + bellows are installed in bugsi venv..."
-    "$BUGSI_VENV/bin/pip" install --quiet zigpy bellows
+    TMPDIR="/tmp" "$BUGSI_VENV/bin/pip" install --no-cache-dir --quiet zigpy bellows
+    sync
 fi
 
 # Ensure bugsi system user exists

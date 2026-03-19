@@ -363,10 +363,21 @@ async def cmd_config(config: ConfigManager, _mock: bool) -> None:
 
 async def cmd_config_pull(config: ConfigManager, mock: bool) -> None:
     """Fetch latest configuration from SaaS backend."""
-    components = await init_components(config, mock)
+    # Lightweight init: only LTE + HTTP client (no cameras, buffers, etc.)
+    if mock:
+        from bugsi_daemon.hardware_mock.lte import MockLteModem
+        lte = MockLteModem()
+    else:
+        from bugsi_daemon.hardware.lte import SixfabLteModem
+        lte = SixfabLteModem(
+            serial_port=config.get("lte.serial_port") if config else None,
+            gpio_pin=config.get("lte.gpio_pin", 26) if config else 26,
+        )
+
+    client = BugsiClient(config.api_url, config.api_key)
+
     try:
         # Power on LTE for network access
-        lte = components["hw"]["lte"]
         print("Powering on LTE...")
         await lte.power_on()
 
@@ -375,7 +386,6 @@ async def cmd_config_pull(config: ConfigManager, mock: bool) -> None:
             return
 
         print("Polling config from SaaS...")
-        client = components["client"]
         result = client.poll_config()
 
         if result.get("has_update"):
@@ -395,9 +405,8 @@ async def cmd_config_pull(config: ConfigManager, mock: bool) -> None:
     except Exception as e:
         print(f"Error fetching config: {e}", file=sys.stderr)
     finally:
-        await components["hw"]["lte"].power_off()
-        await components["buffer"].close()
-        components["client"].close()
+        await lte.power_off()
+        client.close()
 
 
 async def _init_hardware(config: ConfigManager, mock: bool) -> dict:
