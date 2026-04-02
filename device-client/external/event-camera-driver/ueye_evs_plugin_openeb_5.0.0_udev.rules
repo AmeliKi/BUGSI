@@ -1,0 +1,7 @@
+# Cypress USB driver for FX2 and FX3 (C) Cypress Semiconductor Corporation / ATR-LABS
+# Rules written by V. Radhakrishnan ( rk@atr-labs.com )
+# Modified by
+# Copyright (C) 2024, IDS Imaging Development Systems GmbH.
+#
+KERNEL=="*", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ACTION!="remove", ATTR{idVendor}=="1409", ATTR{idProduct}=="8e00", OWNER="root", GROUP="ueye-evs-users", MODE="660", TAG="cyusb_dev"
+KERNEL=="*", SUBSYSTEM=="usb", ENV{DEVTYPE}=="usb_device", ACTION=="remove", TAG=="cyusb_dev"

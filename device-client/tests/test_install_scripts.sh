@@ -79,6 +79,30 @@ check "install.sh verifies ELF headers" \
 check "zigpy pip install uses --no-cache-dir" \
     bash -c "grep 'zigpy' '$SCRIPT_DIR/install_hardware.sh' | grep 'pip.*install' | grep -q '\-\-no-cache-dir'"
 
+# 12. Dual hardware config support
+check "hardware config prompt exists" \
+    bash -c "grep -q 'Select camera config' '$SCRIPT_DIR/install_hardware.sh'"
+check "supports --config flag" \
+    bash -c "grep -q '\-\-config=' '$SCRIPT_DIR/install_hardware.sh'"
+check "persists hardware config" \
+    bash -c "grep -q 'hardware.conf' '$SCRIPT_DIR/install_hardware.sh'"
+check "Option A has IDS event camera function" \
+    bash -c "grep -q 'install_ids_event_camera' '$SCRIPT_DIR/install_hardware.sh'"
+check "Option A has IDS RGB camera function" \
+    bash -c "grep -q 'install_ids_rgb_camera' '$SCRIPT_DIR/install_hardware.sh'"
+check "Option B has Prophesee function" \
+    bash -c "grep -q 'install_prophesee_genx320' '$SCRIPT_DIR/install_hardware.sh'"
+check "Option B has ArduCam function" \
+    bash -c "grep -q 'install_arducam_64mp' '$SCRIPT_DIR/install_hardware.sh'"
+check "verify_hardware.sh reads hardware.conf" \
+    bash -c "grep -q 'hardware.conf' '$SCRIPT_DIR/verify_hardware.sh'"
+check "download_heavy_file helper exists" \
+    bash -c "grep -q 'download_heavy_file()' '$SCRIPT_DIR/install_hardware.sh'"
+check "IDS event camera test script exists" \
+    test -f "$SCRIPT_DIR/test_ids_event_camera.py"
+check "IDS RGB camera test script exists" \
+    test -f "$SCRIPT_DIR/test_ids_rgb_camera.py"
+
 # Summary
 echo
 echo "$PASS passed, $FAIL failed out of $(( PASS + FAIL )) checks"

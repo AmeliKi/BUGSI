@@ -60,6 +60,14 @@ def _resolve_camera(config: ConfigManager, mock: bool) -> dict:
         import bugsi_daemon.hardware.event_camera  # noqa: F401
     except ImportError:
         pass
+    try:
+        import bugsi_daemon.hardware.ids_camera  # noqa: F401
+    except ImportError:
+        pass
+    try:
+        import bugsi_daemon.hardware.ids_event_camera  # noqa: F401
+    except ImportError:
+        pass
     # Mock drivers also register
     import bugsi_daemon.hardware_mock.camera  # noqa: F401
     import bugsi_daemon.hardware_mock.event_camera  # noqa: F401
@@ -75,10 +83,21 @@ def _resolve_camera(config: ConfigManager, mock: bool) -> dict:
         logger.warning("Still camera type '%s' not found in registry, using mock", still_type)
         still_cls = STILL_CAMERA_REGISTRY.get("mock")
     cameras["still_camera"] = still_cls(
-        resolution_width=config.get("still_camera.resolution_width", 3840) if config else 3840,
-        resolution_height=config.get("still_camera.resolution_height", 2160) if config else 2160,
-        camera_id=config.get("still_camera.camera_id", 1) if config else 1,
+        resolution_width=config.get("still_camera.resolution_width", 5136) if config else 5136,
+        resolution_height=config.get("still_camera.resolution_height", 3856) if config else 3856,
+        camera_id=config.get("still_camera.camera_id", 0) if config else 0,
         autofocus_mode=config.get("still_camera.autofocus_mode", "continuous") if config else "continuous",
+        exposure_us=config.get("still_camera.exposure_us", 0) if config else 0,
+        gain_db=config.get("still_camera.gain_db", 0.0) if config else 0.0,
+        white_balance=config.get("still_camera.white_balance", "auto") if config else "auto",
+        balance_ratio_red=config.get("still_camera.balance_ratio_red", 0.0) if config else 0.0,
+        balance_ratio_green=config.get("still_camera.balance_ratio_green", 0.0) if config else 0.0,
+        balance_ratio_blue=config.get("still_camera.balance_ratio_blue", 0.0) if config else 0.0,
+        gamma=config.get("still_camera.gamma", 1.0) if config else 1.0,
+        black_level=config.get("still_camera.black_level", 0.0) if config else 0.0,
+        acquisition_frame_rate=config.get("still_camera.acquisition_frame_rate", 0.0) if config else 0.0,
+        binning_horizontal=config.get("still_camera.binning_horizontal", 1) if config else 1,
+        binning_vertical=config.get("still_camera.binning_vertical", 1) if config else 1,
     )
 
     # Event camera
@@ -97,6 +116,104 @@ def _resolve_camera(config: ConfigManager, mock: bool) -> dict:
     )
 
     return cameras
+
+
+async def reload_cameras(
+    config: ConfigManager,
+    components: dict,
+    hw: dict,
+    image_pipeline=None,
+    mock: bool = False,
+) -> None:
+    """Hot-reload cameras after a config change.
+
+    Closes old cameras, creates new ones from the updated config, and swaps
+    references in the components dict (used by web routes) and the image
+    capture pipeline.
+    """
+    from bugsi_daemon.web.camera import WebCamera, WebEventCamera
+
+    # Close old web cameras
+    old_web_cam = components.get("web_camera")
+    if old_web_cam is not None:
+        try:
+            old_web_cam.close()
+        except Exception:
+            logger.warning("Error closing old WebCamera", exc_info=True)
+
+    old_web_ev = components.get("web_event_camera")
+    if old_web_ev is not None:
+        try:
+            await old_web_ev.close()
+        except Exception:
+            logger.warning("Error closing old WebEventCamera", exc_info=True)
+
+    # Close old raw cameras
+    old_still = hw.get("still_camera")
+    if old_still is not None and old_still is not getattr(old_web_cam, "_camera", None):
+        try:
+            old_still.close()
+        except Exception:
+            logger.warning("Error closing old still camera", exc_info=True)
+
+    old_event = hw.get("event_camera")
+    if old_event is not None and old_event is not getattr(old_web_ev, "_camera", None):
+        try:
+            await old_event.shutdown()
+        except Exception:
+            logger.warning("Error closing old event camera", exc_info=True)
+
+    # Create new cameras from updated config
+    cameras = _resolve_camera(config, mock=mock)
+    hw.update(cameras)
+
+    # Initialize event camera
+    fallbacks = _mock_fallbacks()
+    for name in ("still_camera", "event_camera"):
+        sensor = hw[name]
+        if hasattr(sensor, "initialize"):
+            try:
+                await sensor.initialize()
+            except NotImplementedError:
+                logger.warning("%s: real driver not implemented, using mock", name)
+                hw[name] = fallbacks[name]()
+                await hw[name].initialize()
+                cameras[name] = hw[name]
+
+    # Wrap for web
+    try:
+        still_cam = hw.get("still_camera")
+        if still_cam is not None:
+            jpeg_quality = config.get("still_camera.jpeg_quality", 85)
+            stream_width = config.get("webserver.stream_width", 960)
+            components["web_camera"] = WebCamera(still_cam, jpeg_quality=jpeg_quality, stream_width=stream_width)
+        else:
+            components["web_camera"] = None
+    except Exception:
+        logger.warning("Could not create new WebCamera", exc_info=True)
+        components["web_camera"] = None
+
+    try:
+        event_cam = hw.get("event_camera")
+        if event_cam is not None:
+            jpeg_quality = config.get("event_camera.jpeg_quality", 85)
+            components["web_event_camera"] = WebEventCamera(event_cam, jpeg_quality=jpeg_quality)
+        else:
+            components["web_event_camera"] = None
+    except Exception:
+        logger.warning("Could not create new WebEventCamera", exc_info=True)
+        components["web_event_camera"] = None
+
+    # Update image capture pipeline references
+    if image_pipeline is not None:
+        image_pipeline._still_camera = hw["still_camera"]
+        image_pipeline._event_camera = hw["event_camera"]
+
+    logger.info(
+        "Cameras reloaded: still=%s, event=%s",
+        config.get("still_camera.type"),
+        config.get("event_camera.type"),
+    )
 
 
 def create_hardware(mock: bool, config: ConfigManager | None = None) -> dict:
@@ -269,9 +386,21 @@ async def init_components(config: ConfigManager, mock: bool) -> dict:
                 still_cam = hw.get("still_camera")
                 if still_cam is not None:
                     jpeg_quality = config.get("still_camera.jpeg_quality", 85)
-                    web_camera = WebCamera(still_cam, jpeg_quality=jpeg_quality)
+                    stream_width = config.get("webserver.stream_width", 960)
+                    web_camera = WebCamera(still_cam, jpeg_quality=jpeg_quality, stream_width=stream_width)
             except Exception:
                 logger.warning("Could not initialize camera for webserver, live view disabled", exc_info=True)
+
+            # Create event camera for live view
+            web_event_camera = None
+            try:
+                from bugsi_daemon.web.camera import WebEventCamera
+                event_cam = hw.get("event_camera")
+                if event_cam is not None:
+                    jpeg_quality = config.get("event_camera.jpeg_quality", 85)
+                    web_event_camera = WebEventCamera(event_cam, jpeg_quality=jpeg_quality)
+            except Exception:
+                logger.warning("Could not initialize event camera for webserver", exc_info=True)
 
             web_server = WebServer(
                 config=config,
@@ -280,7 +409,11 @@ async def init_components(config: ConfigManager, mock: bool) -> dict:
                     "client": client,
                     "power_manager": power_manager,
                     "web_camera": web_camera,
+                    "web_event_camera": web_event_camera,
                     "wlan": hw["wlan"],
+                    "hw": hw,
+                    "image_pipeline": image_pipeline,
+                    "mock": mock,
                 },
                 on_request_callback=wlan_manager.reset_timer,
             )

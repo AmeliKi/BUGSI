@@ -1,0 +1,1789 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang xml:lang>
+<head>
+  <meta charset="utf-8" />
+  <meta name="generator" content="pandoc" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes" />
+  <title>IDS peak 2.20 for Linux</title>
+  <style>
+
+code{white-space: pre-wrap;}
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: min(4vw, 1.5em);}
+div.column{flex: auto; overflow-x: auto;}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+
+ul.task-list[class]{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+font-size: inherit;
+width: 0.8em;
+margin: 0 0.8em 0.2em -1.6em;
+vertical-align: middle;
+}
+.display.math{display: block; text-align: center; margin: 0.5rem auto;}
+</style>
+  <style type="text/css">
+html {
+font-family: "Source Sans Pro", "Open Sans", Arial, Helvetica, sans-serif;
+font-size: 16px;
+margin: 0;
+padding: 0;
+scroll-behavior: smooth;
+}
+body {
+margin: 0 auto;
+padding: 10px 20px;
+max-width: 60rem;
+background-color: #f5f5f5;
+color: #484848;
+font-size: 1rem;
+line-height: 1.55rem;
+word-break: break-word;
+}
+
+
+h1 {
+background-color: #008294;
+color: #FFFFFF;
+padding: 6px 0.5rem;
+font-size: 1.6em;
+margin-top: 0.5rem;
+}
+
+h2 {
+background-color: #757575;
+color: #FFFFFF;
+padding: 5px 0.5rem;
+font-size: 1.35em;
+margin-top: 1.4rem;
+}
+.back-to-top,
+.back-to-top:hover,
+.back-to-top:active,
+.back-to-top:focus,
+.back-to-top:visited {
+text-decoration: none !important;
+outline: none;
+float: right;
+transition: opacity 0.3s ease, transform 0.25s ease;
+}
+.back-to-top::after {
+content: " ⇫";
+color: #FFFFFF;
+margin-left: 0.3rem;
+text-decoration: none;
+opacity: 1;
+transition: opacity 0.3s ease, transform 0.25s ease;
+}
+.back-to-top:hover {
+opacity: 0.5;
+text-decoration: none;
+transform: translateY(-3px);
+}
+
+h3 {
+font-size: 1.2em;
+padding-left: 0.5rem;
+margin-top: 1.2rem;
+color: #343434;
+}
+h4 {
+font-size: 1.05em;
+padding-left: 0.5rem;
+margin-top: 1rem;
+color: #343434;
+}
+h5 {
+font-size: 1.0em;
+padding-left: 0.5rem;
+margin-top: 1rem;
+color: #343434;
+}
+
+a {
+color: #00636B;
+text-decoration: underline;
+}
+a:visited {
+color: rgb(60, 80, 82);
+text-decoration: underline;
+}
+a:hover,
+a:focus {
+color: #00636B;
+text-decoration: underline;
+}
+
+ul li,
+ol li {
+margin-bottom: 0.4rem;
+}
+
+pre>code {
+padding: 0.85rem 1rem;
+background-color: #e3e3e3;
+margin: 0 0 0 0.5rem;
+display: block;
+font-size: 0.95rem;
+line-height: 1.45rem;
+border-left: 4px solid #008294;
+}
+code {
+padding: 0.15rem 0.35rem;
+background-color: #e3e3e3;
+font-size: 0.9rem;
+border-radius: 2px;
+}
+code span.at {
+color: #357011;
+}
+
+.note,
+.tip,
+.important,
+.warning,
+.caution {
+border-left: .25em solid;
+padding: 0.5em 1em;
+margin: 0.5rem 0 1rem 0.5rem;
+background: #e3e3e3;
+border-color: #008294;
+>.title {
+font-weight: 600;
+margin-bottom: 0.25em;
+display: flex;
+align-items: center;
+gap: 0.4em;
+p {
+margin: 0;
+}
+}
+p {
+margin: 0.25em 0;
+}
+&.note>.title::before {
+content: "📝 ";
+}
+&.tip>.title::before {
+content: "💡 ";
+}
+&.important>.title::before {
+content: "❗ ";
+}
+&.warning>.title::before {
+content: "⚠️ ";
+}
+&.caution>.title::before {
+content: "🛑 ";
+}
+}
+
+table {
+width: 100%;
+border: 1px solid #ccc;
+border-collapse: collapse;
+}
+table td {
+border: 1px solid #ccc;
+margin: 0px;
+}
+table tr {
+margin: 0px;
+}
+table th {
+background-color: #008294;
+color: #FFF;
+margin: 0px;
+text-align: center;
+padding-left: 0.5em;
+}
+table ul {
+margin: 0px;
+}
+
+p {
+margin: 0.5rem 0 1rem 0.5rem;
+}
+@media (min-width: 1600px) {
+body {
+word-break: break-word;
+}
+}
+hr {
+border: none;
+height: 2px;
+background-color: #dedede;
+margin: 2rem 0 1.5rem 0;
+border-radius: 1px;
+}
+details {
+padding: 0.25em 1em;
+background-color: #FFFFFF;
+margin-left: 0.5rem;
+margin-top: 5px;
+margin-bottom: 5px;
+}
+summary {
+background-color: #FFFFFF;
+color: #008294;
+font-weight: bold;
+padding-left: 5px;
+cursor: pointer;
+}</style>
+</head>
+<body>
+<header id="title-block-header">
+<h1 class="title">IDS peak 2.20 for Linux</h1>
+</header>
+<nav id="TOC" role="doc-toc">
+<ul>
+<li><a href="#announcement" id="toc-announcement">Announcement</a></li>
+<li><a href="#system-requirements" id="toc-system-requirements">System
+requirements</a></li>
+<li><a href="#ids-peak-components" id="toc-ids-peak-components">IDS peak
+components</a></li>
+<li><a href="#installation" id="toc-installation">Installation</a></li>
+<li><a href="#first-start" id="toc-first-start">First start</a></li>
+<li><a href="#notes-for-gige-vision-cameras" id="toc-notes-for-gige-vision-cameras">Notes for GigE Vision
+cameras</a></li>
+<li><a href="#notes-for-usb3-vision-cameras" id="toc-notes-for-usb3-vision-cameras">Notes for USB3 Vision
+cameras</a></li>
+<li><a href="#integrating-cameras-into-own-applications" id="toc-integrating-cameras-into-own-applications">Integrating cameras
+into own applications</a></li>
+<li><a href="#list-of-contained-files--dependencies" id="toc-list-of-contained-files--dependencies">List of contained files /
+dependencies</a></li>
+<li><a href="#uninstallation" id="toc-uninstallation">Uninstallation</a></li>
+<li><a href="#known-issues" id="toc-known-issues">Known issues</a></li>
+<li><a href="#contact" id="toc-contact">Contact</a></li>
+</ul>
+</nav>
+<h2 id="announcement">Announcement<a href="#top" class="back-to-top"></a></h2>
+<h3 id="net-bindings-distribution-update">.NET Bindings Distribution
+Update</h3>
+<p>The .NET bindings are no longer included in the setup package. They
+are now distributed exclusively via <a href="https://www.nuget.org/profiles/IDS_Imaging">NuGet</a>, providing a
+more idiomatic, flexible, and maintainable delivery method for .NET
+developers.</p>
+<p>NuGet is the official package manager for .NET and offers a
+centralized ecosystem for discovering, installing, and updating
+libraries directly from your development environment (for example,
+Visual Studio or the dotnet CLI).</p>
+<p>Moving distribution to NuGet improves version management, simplifies
+updates, and allows you to integrate the .NET bindings into your
+projects using standard .NET workflows.</p>
+<div class="important">
+<div class="title">
+<p>Important</p>
+</div>
+<p>To continue using the .NET bindings, install them from NuGet and
+update your build or dependency management processes accordingly. The
+setup package no longer contains the bindings and <a href="https://github.com/ids-imaging/ids-peak-examples/tree/main/csharp">samples</a>.</p>
+</div>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>Namespaces were renamed to follow C# naming conventions. Migration
+tables are provided in the README of each NuGet package.</p>
+</div>
+<h2 id="system-requirements">System requirements<a href="#top" class="back-to-top"></a></h2>
+<p>For installing <strong>IDS peak</strong>, the following system
+requirements must be met:</p>
+<ul>
+<li><p>Disk space: approx. 420 MB (full installation)</p></li>
+<li><p>Operating system</p>
+<ul>
+<li>Linux Desktop 64-bit (x64)<br />
+has been tested with the following versions:
+<ul>
+<li>Ubuntu 25.10 (questing)</li>
+<li>Ubuntu 24.04 LTS (noble)</li>
+<li>Debian 13 (trixie)</li>
+<li>Debian 12 (bookworm)</li>
+</ul></li>
+<li>Linux Embedded hard-float ARMv8 (64-bit)<br />
+has been tested with the following versions:
+<ul>
+<li>Ubuntu 22.04 (Jammy Jellyfish)</li>
+<li>Raspbian12</li>
+</ul></li>
+</ul></li>
+<li><p>To use <strong>IDS peak</strong>, the Linux system has to support
+a minimum required version of Qt, GNU C Library (libc.so.6) and the GNU
+C++ Library (libstdc++.so.6):</p>
+<ul>
+<li>Qt: minimum version 5.9.5 (QtCore, QtGui, QtQuick, QtWidgets,
+QtMultimedia, QtConcurrent, Qt3DCore, Qt3DExtras, Qt3DRender,
+QtX11Extras)
+<ul>
+<li>Debian packages: libqt5core5a, libqt5gui5, libqt5widgets5,
+libqt5quick5, qml-module-qtquick-window2, qml-module-qtquick2,
+qtbase5-dev, qtdeclarative5-dev, libqt5multimedia5, libqt5x11extras5,
+qml-module-qtquick-window2, qml-module-qtquick2, qtbase5-dev,
+qtdeclarative5-dev, libqt5multimedia5, libqt5x11extras5,
+libqt53danimation5, libqt53dcore, libqt53dextras5, libqt53dinput5,
+libqt53dlogic5, libqt53drender5</li>
+</ul></li>
+<li>libc6: minimum version 2.27</li>
+<li>libstdc++:
+<ul>
+<li>Desktop: minimum version 7.4</li>
+<li>ARMv8 (64-bit): minimum version 7.3</li>
+</ul></li>
+</ul></li>
+<li><p>Further libraries required:</p>
+<ul>
+<li>libusb for the USB3 Vision Transport Layer</li>
+<li>libatomic1</li>
+</ul></li>
+<li><p>For the Debian package also the following package is recommended:
+avahi-autoipd: minimum version 0.6.31</p></li>
+<li><p>To use the commands below you require <strong>sudo</strong> to be
+installed and setup for your user. For troubleshooting please refer to
+your system documentation e.g. <a href="https://wiki.debian.org/sudo">https://wiki.debian.org/sudo</a> or
+<a href="https://manpages.ubuntu.com/manpages/noble/en/man8/sudo.8.html">https://manpages.ubuntu.com/manpages/noble/en/man8/sudo.8.html</a>.</p></li>
+</ul>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>We recommend using 64-bit applications. Depending on the use case and
+camera model, the resources of 32-bit applications may not be
+sufficient, e.g. for high memory requirements.</p>
+</div>
+<h3 id="optional">Optional</h3>
+<ul>
+<li>CMake (minimum version 3.8) to build the samples yourself (if
+required)</li>
+<li>C++ 14 Compiler (for samples, <strong>IDS peak comfortSDK</strong>,
+and <strong>IDS peak genericSDK</strong>)</li>
+<li>.NET 5 and higher</li>
+<li>Python 3.10 and higher (for samples and <strong>IDS peak
+genericSDK</strong> binding)
+<ul>
+<li>To install the Python bindings, <code>pip</code> must be installed
+in version 20.3 or higher. Otherwise <code>pip</code> will detect the
+wheel as <strong>not supported on this platform</strong>.</li>
+<li>For using <strong>IDS peak IPL</strong>, the <strong>NumPy</strong>
+library is additionally required.</li>
+</ul></li>
+</ul>
+<h2 id="ids-peak-components">IDS peak components<a href="#top" class="back-to-top"></a></h2>
+<h3 id="ids-peak-cockpit">IDS peak Cockpit</h3>
+<ul>
+<li>Version: 2.9.0.0<br />
+The <strong>IDS peak Cockpit</strong> is a graphical user interface
+program for easy camera evaluation. The <strong>IDS peak
+Cockpit</strong> allows you to easily manage your cameras with the
+integrated camera manager, save your workspace settings, save images
+automatically and much more.</li>
+</ul>
+<h3 id="ids-peak-tools">IDS peak tools</h3>
+<ul>
+<li><p><strong>IDS IP Config</strong> - 1.5.0.0<br />
+Command line tool for setting camera IP address and network settings for
+GigE Vision cameras</p></li>
+<li><p><strong>IDS Device Update</strong> - 1.4.6.0<br />
+Command line tool for updating the camera firmware for GigE and USB3
+Vision cameras</p></li>
+<li><p><strong>IDS Device Command</strong> - 1.4.5.0<br />
+Command line tool for manually controlling the camera settings and
+commands</p></li>
+<li><p><strong>IDS Device Password</strong> - 1.4.5.0<br />
+Command line tool for editing the password of a password-protected
+camera (certain models only).</p>
+<div class="important">
+<div class="title">
+<p>Important</p>
+</div>
+<p>Note that you must run this tool with elevated privileges.</p>
+</div></li>
+<li><p><strong>IDS Device Password GUI</strong> - 1.4.5.0<br />
+GUI tool for editing the password of a password-protected camera
+(certain models only).</p>
+<div class="important">
+<div class="title">
+<p>Important</p>
+</div>
+<p>Note that you must run this tool with elevated privileges.</p>
+</div></li>
+<li><p><strong>Support tool</strong> - 1.3.0.0<br />
+command line tool for storing information about the system used and the
+camera configuration. You can send this information to IDS to enable
+easier error handling.</p></li>
+</ul>
+<h3 id="transport-layers">Transport Layers</h3>
+<ul>
+<li><p><strong>USB3 Vision Transport Layer (U3V)</strong> -
+1.21.1.0<br />
+GenTL Producer for IDS USB3 Vision cameras (necessary for image
+processing programs based on the GenICam interface).</p></li>
+<li><p><strong>GigE Vision Transport Layer (GEV)</strong> -
+1.21.1.0<br />
+GenTL Producer for IDS GigE Vision cameras (necessary for image
+processing programs based on the GenICam interface).</p></li>
+<li><p><strong>uEye Transport Layer</strong> - 1.21.1.0<br />
+The uEye Transport Layer allows you to use uEye cameras (UI models) with
+<strong>IDS peak</strong>. There are 2 packages for <strong>IDS
+peak</strong>: a package with the uEye Transport Layer or a package
+without the uEye Transport Layer. If you install the <strong>IDS
+peak</strong> packages with the uEye Transport Layer, you must also
+install <strong>IDS Software Suite 495</strong> or higher to operate
+uEye cameras (UI models) with <strong>IDS peak</strong>.</p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>If you have installed the Debian packages for <strong>IDS
+peak</strong>, you must also install the Debian packages for <strong>IDS
+Software Suite</strong>.<br />
+Similarly, if you have installed the TAR archives of <strong>IDS
+peak</strong>, you must also install the TAR archives of <strong>IDS
+Software Suite</strong>.</p>
+</div></li>
+</ul>
+<h3 id="libraries">Libraries</h3>
+<ul>
+<li><p><strong>IDS peak common</strong> - 1.2.0<br />
+A common header-only library that is used for exchanging data and
+interfaces between the different libraries.</p></li>
+<li><p><strong>IDS peak comfortSDK</strong> - 1.14.1.0</p>
+<p>Installs the <strong>IDS peak comfortSDK</strong>. Here, you can use
+numerous simple functions without going deep into the GenICam standard.
+It is possible to program in C.</p></li>
+<li><p><strong>IDS peak genericSDK</strong></p>
+<ul>
+<li><p><strong>IDS peak genericAPI</strong> - 1.14.0.0<br />
+Installs the <strong>IDS peak genericSDK</strong> (based on GenICam) for
+programming.</p></li>
+<li><p><strong>IDS peak AFL</strong> - 2.0.1.0<br />
+Installs an additional library for auto features.</p></li>
+<li><p><strong>IDS peak ICV</strong> - 1.2.0<br />
+Installs an additional library for advanced image processing.</p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p><strong>IDS peak ICV</strong> will replace <strong>IDS peak
+IPL</strong> in the future. For this reason, further development of
+<strong>IDS peak IPL</strong> will cease. We recommend using <strong>IDS
+peak ICV</strong> instead.</p>
+</div></li>
+<li><p><strong>IDS peak IPL</strong> - 1.17.1.0<br />
+Installs an additional library for basic image processing.</p></li>
+</ul></li>
+</ul>
+<h3 id="samples">Samples</h3>
+<ul>
+<li><p><strong>Generic Samples</strong><br />
+Installs source code samples and binaries for <strong>IDS peak
+genericSDK</strong>.</p></li>
+<li><p><strong>Comfort Samples</strong><br />
+Installs source code samples and binaries for <strong>IDS peak
+comfortSDK</strong>.</p></li>
+<li><p><strong>Third Party Samples</strong><br />
+Installs source code samples for HALCON and MIL (Matrox Imaging
+Library)</p></li>
+</ul>
+<h2 id="installation">Installation<a href="#top" class="back-to-top"></a></h2>
+<div class="important">
+<div class="title">
+<p>Important</p>
+</div>
+<p>You must be root to be able to install the package.</p>
+</div>
+<p>There are different ways for installation: either as Debian package
+or as archive (.tgz/tar.gz).</p>
+<h3 id="installation-with-debian-packages">Installation with Debian
+packages</h3>
+<p>For a typical user installation, the <strong>ids-peak</strong>
+package installs all needed dependencies automatically.</p>
+<p>If you need the uEye Transport Layer, note that an installation of
+the <strong>IDS Software Suite 4.95</strong> or higher is required to
+operate uEye cameras (UI models) with <strong>IDS peak</strong>.</p>
+<p>It can either be installed with the <strong>ids-peak-full</strong>
+metapackage or individually by installing
+<strong>ids-peak-gentl-ueye</strong>.</p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>The following lines use the old <strong>.list</strong> format, not
+the newer deb822 <strong>.sources</strong> format used by Debian 13
+(trixie) / Ubuntu 25.10 (questing). The old format is still supported in
+these and newer Debian/Ubuntu versions.</p>
+</div>
+<ol type="1">
+<li><p>Download the public key for the ids-peak repository and add the
+public key to the local keyring:</p>
+<pre class="bash"><code>user@pc]$ wget --http-user=&lt;IDS webstore user name&gt; --http-password=&lt;IDS webstore password&gt; -O- https://repo.ids-imaging.com/idsgpg.asc | gpg --dearmor sudo tee /usr/local/share/keyrings/ids-archive-keyring.gpg</code></pre></li>
+<li><p>Create a separate file in <code>/etc/apt/auth.conf.d</code> for
+your login information:</p>
+<pre class="bash"><code>[user@pc]$ sudo touch /etc/apt/auth.conf.d/ids-peak-repo.conf</code></pre></li>
+<li><p>Add the ids-peak repository and your IDS webstore login:</p>
+<ul>
+<li>Debian</li>
+</ul>
+<pre class="bash"><code>[user@pc]$ sudo sh -c &#39;echo &quot;machine repo.ids-imaging.com/debian login &lt;IDS webstore user name&gt; password &lt;IDS webstore password&gt;&quot; &gt; /etc/apt/auth.conf.d/ids-peak-repo.conf&#39;</code></pre>
+<ul>
+<li>Ubuntu</li>
+</ul>
+<pre class="bash"><code>[user@pc]$ sudo sh -c &#39;echo &quot;machine repo.ids-imaging.com/ubuntu login &lt;IDS webstore user name&gt; password &lt;IDS webstore password&gt;&quot; &gt; /etc/apt/auth.conf.d/ids-peak-repo.conf&#39;</code></pre></li>
+<li><p>Add the ids-peak repository to a separate file in
+<code>/etc/apt/sources.list.d</code>. (It is recommended to create one
+file per repository/manufacturer ending in <code>.list</code>.)</p>
+<pre class="bash"><code>[user@pc]$ sudo touch /etc/apt/sources.list.d/ids-peak-repo.list</code></pre></li>
+<li><p>Add the ids-peak repository and its corresponding keyring:</p>
+<ul>
+<li>Debian</li>
+</ul>
+<pre class="bash"><code>[user@pc]$ sudo sh -c &#39;echo &quot;deb [signed-by=/usr/local/share/keyrings/ids-archive-keyring.gpg] https://repo.ids-imaging.com/debian &lt;distribution&gt; main&quot; &gt; /etc/apt/sources.list.d/ids-peak-repo.list&#39;</code></pre>
+<ul>
+<li>Ubuntu</li>
+</ul>
+<pre class="bash"><code>[user@pc]$ sudo sh -c &#39;echo &quot;deb [signed-by=/usr/local/share/keyrings/ids-archive-keyring.gpg] https://repo.ids-imaging.com/ubuntu &lt;distribution&gt; main&quot; &gt; /etc/apt/sources.list.d/ids-peak-repo.list&#39;</code></pre></li>
+<li><p>Install the ids-peak packages:</p>
+<pre class="bash"><code>[user@pc]$ sudo apt-get update &amp;&amp; sudo apt-get install ids-peak</code></pre></li>
+<li><p>Additionally, if you need the uEye Transport Layer:</p>
+<pre class="bash"><code>[user@pc]$ sudo apt-get install ids-peak-gentl-ueye</code></pre></li>
+</ol>
+<h3 id="installation-with-the-archive-file-tgz">Installation with the
+archive file (.tgz)</h3>
+<p>There are two packages for <strong>IDS peak</strong>:</p>
+<ul>
+<li><p>Package <strong>without</strong> uEye Transport Layer:
+<code>ids-peak_&lt;version&gt;_&lt;arch&gt;.tgz</code></p></li>
+<li><p>Package <strong>with</strong> uEye Transport Layer:
+<code>ids-peak-with-ueyetl_&lt;version&gt;_&lt;arch&gt;.tgz</code></p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>If you install the <strong>IDS peak</strong> packages with the uEye
+Transport Layer, you must also install <strong>IDS Software
+Suite</strong> 4.95 or higher to operate uEye cameras (UI models) with
+<strong>IDS peak</strong>.</p>
+</div></li>
+</ul>
+<p>Before you start using the archive make sure you have <strong>all
+required libraries</strong> installed, see <a href="#system-requirements">system requirements</a> above.</p>
+<ul>
+<li>Copy all the files into a directory on the hard disk (you need write
+access to decompress), for example
+<code>/opt/ids_peak_&lt;version&gt;_&lt;arch&gt;</code>.</li>
+<li>This can be achieved using the command:
+<ul>
+<li><p>Package <strong>without</strong> uEye Transport Layer</p>
+<p><code>tar -xvzf ids-peak_&lt;version&gt;_&lt;arch&gt;+.tar.gz -C /opt</code></p></li>
+<li><p>Package <strong>with</strong> uEye Transport Layer</p>
+<p><code>tar -xvzf ids-peak-with-ueyetl_&lt;version&gt;_&lt;arch&gt;.tar.gz -C /opt</code></p></li>
+</ul></li>
+</ul>
+<h4 id="environment-variable">Environment variable</h4>
+<p>You can move the extracted folder to any directory. Starting the
+applications via the shell scripts in the <code>bin</code> folder
+ensures that they always use the supplied transport layer
+(<code>/opt/ids_peak_&lt;version&gt;_&lt;arch&gt;/lib/&lt;arch&gt;/ids-peak/cti/ids_gevgentl.cti</code>)
+by setting the environment variable <code>GENICAM_GENTL64_PATH</code>.
+For the source code of the samples, CMake will generate a starter script
+and copy it to the output folder which you should use to run the built
+samples. If you want to build your own application you can either set
+the variables for your user account manually or build your own shell
+script the same way CMake does for the shipped samples (see
+<code>CMakeLists.txt</code> for the samples).</p>
+<p>Under
+<code>/opt/ids_peak_&lt;version&gt;_&lt;arch&gt;/share/ids-peak/scripts</code>
+you can find a udev rule for the USB access the USB3 Vision cameras
+require. For a simple installation you can use the script
+<code>ids_install_udev_rule.sh</code> in the same folder. Additionally
+you can find an uninstall script as well.</p>
+<p>If you use the TAR archive and you want to run your own programs that
+use our libraries, you must set <code>LD_LIBRARY_PATH</code>. Otherwise
+the dynamic libraries cannot be found:</p>
+<ul>
+<li><p>Either inline when calling the program</p>
+<p><code>LD_LIBRARY_PATH={TAR_ARCHIVE_INSTALL_ROOT}/lib/&lt;arch&gt;/~camera_test</code></p></li>
+<li><p>Or set it for the current shell session and then it will be used
+for all subsequent calls:</p>
+<p><code>export LD_LIBRARY_PATH={TAR_ARCHIVE_INSTALL_ROOT}/lib/&lt;arch&gt;/~/camera_test</code></p></li>
+<li><p>Example path when the tar archive was extracted into
+<code>/opt</code>:</p>
+<p><code>LD_LIBRARY_PATH=/opt/ids-peak_&lt;version&gt;_&lt;arch&gt;/lib/&lt;arch&gt;</code></p></li>
+</ul>
+<h3 id="structure-in-file-system">Structure in file system</h3>
+<p>The following shows the structure of the tar archive installed to
+<code>/bin</code> in this example. The Debian package has the same
+structure but installs to the <code>/usr/bin</code> folder of your
+system.</p>
+<details>
+<summary> File structure </summary>
+
+<pre class="text"><code>|-- ids-peak_&lt;version&gt;_&lt;arch&gt;
+    |-- bin
+        |-- bash scripts to start:
+        |-- ids_peak_cockpit
+        |-- ids_devicecommand
+        |-- ids_deviceupdate
+        |-- ids_ipconfig
+        |-- ids_devicepassword_gui
+        |-- ids_devicepassword
+        |-- ids_support_tool
+        |-- all compiled samples
+    |-- include
+        |-- ids-peak
+            |-- ids_gentl_custom_extension
+            |-- peak (genericSDK)
+                |-- header files for ids_peak
+            |-- peak_afl
+                |-- header files for ids_peak_afl
+            |-- ids_peak_comfort_c
+                |-- header files for ids_peak_comfortSDK
+            |-- peak_ipl
+                |-- header files for ids_peak_ipl
+            |-- ids_peak_icv
+                |-- peak_icv
+                    |-- c++ header files for ids_peak_icv
+                |-- peak_icv_C
+                    |-- c header files for ids_peak_icv
+         |-- peak_common
+            |-- c++ header files for common
+         |-- peak_common_c
+            |-- c header files for common
+    |-- lib
+         |-- cmake
+            |-- ids_peak_common
+                |-- cmake config files
+                    |-- [ arch ]
+            |-- cmake
+                |-- ids_peak
+                    |-- cmake config files
+                |-- ids_peak_afl
+                    |-- cmake config files
+                |-- ids_peak_ipl
+                    |-- cmake config files
+                |-- ids_peak_icv
+                    |-- cmake config files
+                |-- ids_peak_comfort_c
+                    |-- cmake config files
+            |-- ids-peak
+                |-- bin
+                   |-- Programming samples
+                |-- cti
+                   |-- ids_gevgentl.cti
+                   |-- ids_u3vgentl.cti
+                   |-- ids_ueyegentl.cti (if uEye Transport Layer was installed)
+                |-- lib
+                   |-- used libraries e.g. TBB, GenICam
+            |-- ids_peak_icv
+                |-- used libraries e.g. TBB
+            |-- ids_peak.so (genericSDK)
+            |-- ids_peak_afl.so
+            |-- ids_peak_ifl.so
+            |-- ids_peak_ipl.so
+            |-- ids_peak_icv.so.&lt;version&gt; (plus symlinks)
+            |-- ids_peak_comfort_c.so
+    |-- share
+        |-- applications
+            |-- starter for GUF update and IDS peak Cockpit
+        |-- doc
+            |-- ids-peak
+                |-- ids_peak
+                    |-- html
+                        |-- HTML documentation for IDS peak genericSDK
+                |-- ids_peak_afl
+                      |-- html
+                        |-- HTML documentation for IDS peak AFL
+                |-- ids_peak-comfort_c
+                    |-- html
+                        |-- HTML documentation for IDS peak comfortSDK
+                |-- ids_peak_ipl
+                    |-- html
+                        |-- HTML documentation for IDS peak IPL
+                |-- ids_peak_icv
+                    |-- html
+                        |-- HTML documentation for IDS peak ICV
+                |-- licenses
+                    |-- license files
+                    |-- thirdparty_copyrights.txt
+                    |-- thirdparty_licenses.txt
+        |-- icons
+            |-- hicolor
+                |-- scalable
+                    |-- apps
+                    |-- mimetypes
+        |–- ids-peak
+            |-- cnn
+                |-- sample neural networks for testing purposes
+            |-- scripts
+                |-- ids_install_mimetype.sh
+                |-- ids_set_receive_buffer_size.sh
+                |-- ids_set_usb_mem_size.sh
+            |-- samples
+                |-- halcon
+                    |-- HALCON samples
+                |-- ids_peak_comfort_c
+                    |-- IDS peak comfortC samples
+                |-- mil
+                    |-- MIL samples
+                |-- peak
+                    |-- IDS peak genericC++ samples
+                    |-- IDS peak genericPython samples
+        |–- lintian
+            |–- overrides
+        |–- mime
+            |–- packages</code></pre>
+</details>
+
+<p>During runtime the shipped programs may write config files to your
+<code>.config</code> directory in your home folder. It creates a
+subfolder <code>IDS Imaging Development Systems GmbH</code> which stores
+the config files for e.g. the <strong>IDS peak Cockpit</strong>
+application.</p>
+<h3 id="installing-the-python-bindings-from-pypi">Installing the Python
+bindings from PyPI</h3>
+<p>To use the Python binding of <strong>IDS peak</strong> make sure that
+Python is installed on your PC. For using <strong>IDS peak IPL</strong>,
+the <strong>NumPy</strong> library is additionally required.</p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>Python version <strong>3.10 and higher</strong> are supported.</p>
+</div>
+<p>You can use <code>pip</code> to install the <strong>IDS peak</strong>
+Python bindings from <a href="https://pypi.org/project/ids-peak/">PyPI</a>. For this purpose,
+you need <code>pip</code> version 20.3 or higher. Otherwise
+<code>pip</code> will detect the wheel as <strong>not supported on this
+platform</strong>.</p>
+<p>There are a few packages to be installed:</p>
+<ul>
+<li>ids_peak
+<ul>
+<li>Version 1.14.0.0.7</li>
+<li>Provides the bindings for <strong>IDS peak genericAPI</strong></li>
+<li><a href="https://pypi.org/project/ids-peak/">https://pypi.org/project/ids-peak/</a></li>
+</ul></li>
+<li>ids_peak_common
+<ul>
+<li>Version 1.2.0</li>
+<li>Provides the bindings for <strong>IDS peak common</strong> This
+library provides fundamental types, utilities, and interfaces shared
+across multiple products and modules.</li>
+<li><a href="https://pypi.org/project/ids-peak-common/"><span>https://pypi.org/project/ids-peak-common/</span></a></li>
+</ul></li>
+<li>ids_peak_afl
+<ul>
+<li>Version 2.0.1.0.4</li>
+<li>Provides the bindings for <strong>IDS peak AFL</strong></li>
+<li><a href="https://pypi.org/project/ids-peak-afl/"><span>https://pypi.org/project/ids-peak-afl/</span></a></li>
+</ul></li>
+<li>ids_peak_icv
+<ul>
+<li>Version 1.2.0</li>
+<li>Provides the bindings for <strong>IDS peak ICV</strong> This library
+provides computer vision capabilities for industrial applications.</li>
+<li><a href="https://pypi.org/project/ids-peak-icv/"><span>https://pypi.org/project/ids-peak-icv/</span></a></li>
+</ul></li>
+<li>ids_peak_ipl
+<ul>
+<li>Version 1.17.1.0.6</li>
+<li>Provides the bindings for <strong>IDS peak IPL</strong></li>
+<li>For using <strong>IDS peak IPL</strong>, the <strong>NumPy</strong>
+library is additionally required.</li>
+<li><a href="https://pypi.org/project/ids-peak-ipl/"><span>https://pypi.org/project/ids-peak-ipl/</span></a></li>
+</ul></li>
+</ul>
+<p>To install the bindings, follow this order:</p>
+<pre class="bash"><code>python -m pip install ids_peak_common
+python -m pip install ids_peak_ipl
+python -m pip install ids_peak
+python -m pip install ids_peak_afl
+python -m pip install ids_peak_icv</code></pre>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>If you use a proxy, you must specify the proxy settings in the
+commands above directly after <code>pip install</code> with
+<code>--proxy &lt;IP address&gt;:&lt;port number&gt;</code></p>
+</div>
+<h3 id="installation-of-the-net-bindings-from-nuget">Installation of the
+.NET bindings from NuGet</h3>
+<p>The .NET bindings are no longer included in the release package and
+must be installed via NuGet. Detailed documentation and usage
+instructions are available on the respective NuGet package pages.</p>
+<p>Available packages:</p>
+<ul>
+<li>IDSImaging.Peak.API</li>
+<li>IDSImaging.Peak.IPL</li>
+<li>IDSImaging.Peak.AFL</li>
+</ul>
+<p>You can install packages using the NuGet Package Manager in Visual
+Studio or via the .NET CLI, for example:</p>
+<pre class="bash"><code>dotnet add package IDSImaging.Peak.API</code></pre>
+<p>Install additional packages as required by your application.</p>
+<div class="important">
+<div class="title">
+<p>Important</p>
+</div>
+<p>Namespaces in the .NET bindings have been renamed to align with
+standard C# naming conventions. If you are upgrading from earlier
+versions, code changes may be required.</p>
+</div>
+<p>Each NuGet package README includes a detailed migration table
+outlining the relevant renamings and recommended updates. Please refer
+to the respective package page for guidance during migration.</p>
+<h2 id="first-start">First start<a href="#top" class="back-to-top"></a></h2>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>Some Linux distributions disconnect network interfaces when no
+network device is connected to them (e.g. a switch, a camera) and
+reconnect them as soon as a device gets connected to them. This means
+that you have to restart the <strong>IDS peak Cockpit</strong> when a
+camera is added directly to a network port <strong>after</strong> the
+<strong>IDS peak Cockpit</strong> has started because the transport
+layer only searches for new network interfaces during
+initialization.</p>
+</div>
+<details><summary> Debian packages </summary>
+
+<p>Use the menu entry <strong>IDS peak Cockpit</strong> to start the
+application. For security reasons, you should not run applications as
+root.</p>
+<p>The camera manager in <strong>IDS peak Cockpit</strong> shows you the
+IDS producers available on the host system. The available IDS cameras
+are listed below their interfaces. If the camera entry is grayed out,
+this camera is already open.</p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>If GigE Vision cameras are on a different subnet than the network
+adapter, the <strong>IDS peak Cockpit</strong> must be run as root to
+find the cameras.</p>
+</div>
+</details>
+
+<details><summary> TAR archives </summary>
+
+<p>Use the shell script in the <code>bin</code> directory to start the
+<strong>IDS peak</strong> Cockpit. For security reasons, you should not
+run applications as root.</p>
+<p>The camera manager in <strong>IDS peak Cockpit</strong> shows you the
+IDS producers available on the host system. The available IDS cameras
+are listed below their interfaces. If the camera entry is grayed out,
+this camera is already open.</p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>If GigE Vision cameras are on a different subnet than the network
+adapter, the script must be run as root to find the cameras.</p>
+</div>
+</details>
+
+<h3 id="opening-a-camera">Opening a camera</h3>
+<p>To open a camera in <strong>IDS peak Cockpit</strong>, you can select
+it via the camera manager or open the first available camera directly
+with the icon in the main toolbar.</p>
+<p>For operating a GigE Vision or USB3 Vision camera, refer also to the
+<a href="#notes-for-gige-vision-cameras">Notes for GigE Vision
+cameras</a> and <a href="#notes-for-usb3-vision-cameras">Notes for USB3
+Vision cameras</a>.</p>
+<h3 id="samples-1">Samples</h3>
+<p>The samples are available for <strong>IDS peak comfortSDK</strong>,
+<strong>IDS peak genericSDK</strong>, or for third parties, e.g. for
+<strong>HALCON</strong>.</p>
+<p>If you are using the Debian packages you will find start scripts for
+the pre-build samples in <code>/usr/bin/</code> and the source code in
+<code>/usr/share/ids-peak/samples</code>. For the TAR archives you will
+find the start scripts under <code>ids_peak_xxx/bin/</code> and the
+source code in the folder
+<code>ids_peak_xxx/share/ids-peak/samples</code>. Usually, you will not
+have write permissions in <code>/usr/share/ids-peak/samples</code> so
+you should copy the folder with the samples to a folder with write
+permissions e.g. your home folder.</p>
+<p>To compile the samples with CMake or your own application you need a
+<code>config.cmake</code> file. The Debian package installs it into the
+<code>/usr/lib/&lt;arch&gt;/cmake</code> folder which is automatically
+searched by CMake. When using the TAR archive the path to the
+<code>config.cmake</code> file must be set manually. This can be done by
+adding the library directory to the
+<code>CMAKE_PREFIX_PATH cmake -DCMAKE_PREFIX_PATH=&quot;/opt/ids_peak_&lt;version&gt;_&lt;arch&gt;/cmake&quot;</code>
+sourcedir.</p>
+<p>To run the samples please use the generated shell script files. These
+will automatically take care of the environment variables which are
+required to use the GenTL producer libraries. Or set up the required
+environment variable yourself manually:</p>
+<ul>
+<li><code>GENICAM_GENTL32_PATH=$GENICAM_GENTL32_PATH:/opt/ids_peak_&lt;version&gt;_&lt;arch&gt;/lib/&lt;arch&gt;/ids-peak/cti</code></li>
+<li><code>GENICAM_GENTL64_PATH=$GENICAM_GENTL64_PATH:/opt/ids_peak_&lt;version&gt;_&lt;arch&gt;/lib/&lt;arch&gt;/ids-peak/cti</code></li>
+</ul>
+<p>For information on how to set up environment variables, check the
+documentation of your system, e.g. for Debian: <a href="https://wiki.debian.org/EnvironmentVariables">https://wiki.debian.org/EnvironmentVariables</a></p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>The samples were built and tested with the following Qt versions:</p>
+<ul>
+<li>Linux desktop (32/64-bit): Qt 5.9.5</li>
+<li>Linux Embedded hard-float ARMv8 (64-bit): Qt 5.9.5</li>
+</ul>
+<p>For the QML samples, it is recommended to use the latest Qt5 version.
+Qt6 is currently only supported for the <strong>IDS peak genericSDK
+samples</strong>.</p>
+</div>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>Python samples providing a GUI depend on the following packages:</p>
+<ul>
+<li>pyside
+<ul>
+<li>Python 3.10 or earlier: pyside2</li>
+<li>Python 3.11 or later: pyside6</li>
+</ul></li>
+<li>pyqt5</li>
+</ul>
+</div>
+<details>
+<summary> IDS peak comfortSDK </summary>
+
+<ul>
+<li><p><strong>chunks</strong><br />
+Demonstrates how to use chunks which provide additional information
+about a frame.</p></li>
+<li><p><strong>configure_camera_gfa</strong><br />
+Demonstrates the <strong>generic feature access</strong> which allows
+direct access to the camera&#39;s NodeMap.</p></li>
+<li><p><strong>firmware_update</strong><br />
+Demonstrates how to update cameras using a GUF file and how to be
+informed about the update progress.<br />
+To use this example, download a GUF file for your specific camera model.
+Start the example and pass the path to the GUF file as first
+argument.<br />
+Then a list of updateable devices will be displayed. After a
+confirmation prompt, the compatible devices will be updated.<br />
+The update progress is displayed in the terminal.</p></li>
+<li><p><strong>i2c</strong><br />
+Demonstrates the use of the I2C feature.<br />
+Requires a camera that supports I2C:</p>
+<ul>
+<li>U3 models (requires USB3 Vision firmware 3.20 or higher)
+<ul>
+<li>PCB version uEye+ LE USB 3.1 Rev. 1.2</li>
+<li>uEye+ LE USB 3.1 Rev. 1.2 AF</li>
+<li>USB 3 uEye+ ACP Rev. 1.2</li>
+</ul></li>
+<li>GV models (requires GigE Vision firmware 3.20 or higher)
+<ul>
+<li>GigE uEye+ ACP Rev. 1.2</li>
+</ul></li>
+<li>UI models (requires <strong>IDS peak</strong> 2.7 or higher)
+<ul>
+<li>PCB version uEye LE USB 3.1 Gen 1</li>
+<li>PCB version USB 3 uEye LE</li>
+<li>PCB version USB uEye LE</li>
+<li>GigE uEye LE</li>
+</ul></li>
+</ul></li>
+<li><p><strong>inference</strong><br />
+Demonstrates the inference feature in <strong>IDS peak</strong>:</p>
+<ul>
+<li>Loading a CNN (convolutional neural network) with <strong>IDS
+peak</strong></li>
+<li>Running the CNN on a captured image</li>
+<li>Reading out the results</li>
+</ul>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>A CNN especially trained for <strong>IDS peak</strong> is required.
+Use <a href="https://en.ids-imaging.com/ai-vision-studio.html">IDS
+lighthouse</a> to generate such a CNN or use one of the sample neural
+networks in the directory
+<code>&lt;IDS peak installation&gt;/cnn</code></p>
+</div></li>
+<li><p><strong>ipl_features_live_qtwidgets</strong><br />
+Shows the use of <strong>IDS peak IPL</strong> functions for image
+manipulation in <strong>IDS peak comfortSDK</strong>. The example uses
+QtWidgets for this.</p></li>
+<li><p><strong>message_queue</strong><br />
+Demonstrates the use of camera-based and host-based events in a simple
+GUI. The example uses QtWidgets for this.</p>
+<ol type="1">
+<li>Click on <strong>Open camera</strong>.</li>
+<li>Select a camera.</li>
+<li>Activate at least one event.</li>
+<li>Start image acquisition.</li>
+</ol></li>
+<li><p><strong>reconnect</strong><br />
+Opens the first available uEye+ camera and starts image acquisition. If
+you disconnect the camera, this is detected and signaled. If you
+reconnect the camera, this will also be detected and image acquisition
+will start again. This example can also be used in combination with the
+uEye transport layer for uEye cameras (UI models).</p></li>
+<li><p><strong>record_video</strong><br />
+Gets the camera list and opens a camera after user selection. After the
+user enters the path and the name of the video file, 100 images are
+acquired and the video is saved. Afterwards, the camera is closed
+again.</p></li>
+<li><p><strong>sequencer_qtwidgets</strong><br />
+This example requires a camera that supports the Sequencer feature. The
+example allows to parameterize 4 sequencer sets and to execute them in
+trigger mode. The following parameters can be used:</p>
+<ul>
+<li>Exposure time</li>
+<li>Gains (master gain, red gain, green gain, and blue gain)</li>
+<li>Height, width, offsetX, and offsetY</li>
+</ul>
+<p>The example uses QtWidgets for this.</p></li>
+<li><p><strong>simple_live_qtwidgets</strong><br />
+Opens a camera and displays the live image. The example uses QtWidgets
+for this.</p></li>
+<li><p><strong>trigger_live_qtwidgets</strong><br />
+Shows the use of triggered acquisition and setting trigger parameters
+like trigger delay etc. The example uses QtWidgets for this.</p></li>
+<li><p><strong>walkthrough</strong><br />
+Gets the camera list and opens the first available camera. The frame
+rate is set to maximum and 100 images are acquired. Afterwards, the
+camera is closed again.</p></li>
+</ul>
+</details>
+
+<details>
+<summary> IDS peak genericC++ </summary>
+
+<ul>
+<li><p><strong>chunks_live_qml</strong><br />
+Opens a camera and shows the use of chunk data via the <strong>IDS peak
+API</strong>. The example uses QML (Qt Meta-object Language) for
+this.</p></li>
+<li><p><strong>chunks_live_qtwidgets</strong><br />
+Opens a camera and shows the use of chunk data via the <strong>IDS peak
+API</strong>. The example uses QtWidgets for this.</p></li>
+<li><p><strong>device_tree</strong><br />
+Create and update module tree and open a camera.</p></li>
+<li><p><strong>firmware_update</strong><br />
+Demonstrates how to update cameras using a GUF file and how to be
+informed about the update progress. To use this example, download a GUF
+file for your specific camera model. Start the example and pass the path
+to the GUF file as first argument. Then a list of updateable devices
+will be displayed. After a confirmation prompt, the compatible devices
+will be updated. The update progress is displayed in the
+terminal.</p></li>
+<li><p><strong>get_first_pixel</strong><br />
+Starting image acquisition and accessing image pixel data.</p></li>
+<li><p><strong>host_auto_features_live_qtwidgets</strong><br />
+Opens a camera and shows the use of automatic exposure, gain and white
+balance algorithms (host based). The example uses QtWidgets for
+this.</p></li>
+<li><p><strong>host_auto_focus_live_qtwidgets</strong><br />
+Opens a camera and demonstrates the usage of the <strong>IDS peak
+AFL</strong> to control the host-sided autofocus features. This sample
+uses a QtWidgets GUI, which also provides a method of setting the
+autofocus ROI by drawing a bounding box on the image.</p></li>
+<li><p><strong>lego_trigger</strong><br />
+Using triggered acquisition and setting trigger parameters.</p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>When exiting the sample, the camera remains in trigger mode. If you
+want to use the camera in freerun mode afterwards, load the <em>Default
+UserSet</em> or set all TriggerMode entries to <em>Off</em>.</p>
+</div></li>
+<li><p><strong>linescan_live_qtwidgets</strong><br />
+Opens a camera and configures it for linescan applications. The example
+uses QtWidgets for this.</p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>When exiting the sample, the camera remains in linescan mode. If you
+want to use the camera in default mode afterwards, load the <em>Default
+UserSet</em>.</p>
+</div></li>
+<li><p><strong>multi_camera_live_qtwidgets</strong><br />
+Opens several cameras and displays the live image. In addition,
+different information per camera is displayed, e.g. number of acquired
+images.</p></li>
+<li><p><strong>open_camera</strong><br />
+Simple creation and opening of a camera object.</p></li>
+<li><p><strong>open_camera_by_serno</strong><br />
+Create and open a camera object by serial number.</p></li>
+<li><p><strong>open_camera_load_userset_default</strong><br />
+Opens a camera. Then, the user set <em>Default</em> is loaded and
+activated.</p></li>
+<li><p><strong>open_camera_select_cti</strong><br />
+Using a specific CTI to create and open a camera object.</p></li>
+<li><p><strong>reconnect_callbacks</strong><br />
+Opens the first available uEye+ camera and starts image acquisition. If
+you disconnect the camera, this is detected and signaled. If you
+reconnect the camera, this will also be detected and image acquisition
+will start again. This example can also be used in combination with the
+uEye transport layer for uEye cameras (UI models).</p></li>
+<li><p><strong>remote_device_events</strong><br />
+Demonstrate usage of <em>RemoteDeviceEvents</em> by activating and
+displaying <em>ExposureStart</em> event during continuous image
+acquisition.</p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>This sample requires firmware version 2.8 or higher.</p>
+</div></li>
+<li><p><strong>save_images_live_qtwidgets</strong><br />
+Simple GUI example using Qt to show images and save them to disk
+.</p></li>
+<li><p><strong>sequencer_live_qml</strong><br />
+This example requires a camera that supports the Sequencer feature. The
+example allows to parameterize 4 sequencer sets and to execute them in
+trigger mode. The following parameters can be used:</p>
+<ul>
+<li>Exposure time</li>
+<li>Gains (AnalogAll, DigitalAll, DigitalRed, DigitalGreen,
+DigitalBlue)</li>
+<li>Height, width, offsetX, and offsetY</li>
+</ul>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>When exiting the sample, the camera remains in sequencer mode. If you
+want to use the camera in default mode afterwards, load the <em>Default
+UserSet</em>.</p>
+</div></li>
+<li><p><strong>simple_live_qml</strong><br />
+Simple example for usage with QML GUI to display images.</p></li>
+<li><p><strong>simple_live_qtwidgets</strong><br />
+Simple example for usage with Qt widgets GUI to display images.</p></li>
+<li><p><strong>unicast</strong><br />
+Detecting cameras across subnet boundaries: This example demonstrates
+how you can identify and operate cameras across subnet boundaries. You
+will be prompted to select a network interface and enter the unicast IP
+addresses of the target cameras. The transport layer is configured to
+use only unicast discovery. Broadcast discovery is explicitly disabled.
+The identified cameras are listed with detailed information.</p></li>
+<li><p><strong>walkthrough</strong><br />
+Guided tour through module tree and opening of the first available
+camera.</p></li>
+</ul>
+</details>
+
+<details>
+<summary> IDS peak genericC# </summary>
+
+<p>C# sample applications are now hosted on GitHub to provide easier
+access, faster updates, and improved collaboration. As part of an
+ongoing phased migration, the samples are being moved from the release
+package to the public examples repository.</p>
+<p>Available samples: <a href="https://github.com/ids-imaging/ids-peak-examples/tree/main/csharp">ids-peak-examples
+on GitHub</a></p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>The migration is currently in progress, and additional examples will
+be published there incrementally.</p>
+</div>
+</details>
+
+<details>
+<summary> IDS peak genericPython </summary>
+
+<ul>
+<li><p><strong>firmware_update</strong><br />
+Demonstrates how to update cameras using a GUF file and how to be
+informed about the update progress. To use this example, download a GUF
+file for your specific camera model. Start the example and pass the path
+to the GUF file as first argument. Then a list of updateable devices
+will be displayed. After a confirmation prompt, the compatible devices
+will be updated. The update progress is displayed in the
+terminal.</p></li>
+<li><p><strong>open_camera</strong><br />
+Simple creation and opening of a camera object.</p></li>
+<li><p><strong>pipeline_sample_kivy</strong><br />
+Demonstrates the new pixel processing pipeline together with the auto
+feature module provided by the <strong>IDS peak AFL</strong>. The sample
+shows how images are acquired from the camera, processed via the
+pipeline, and enhanced using modules such as conversion, color
+correction, and sharpening. It also illustrates how automatic features
+like auto brightness, auto white balance, and auto focus are applied and
+interact with manual pipeline settings during live acquisition.</p></li>
+<li><p><strong>reconnect_callbacks</strong><br />
+Opens the first available uEye+ camera and starts image acquisition. If
+you disconnect the camera, this is detected and signaled. If you
+reconnect the camera, this will also be detected and image acquisition
+will start again. This example can also be used in combination with the
+uEye transport layer for uEye cameras (UI models).</p></li>
+<li><p><strong>record_video_and_change_parameter</strong><br />
+Uses the <strong>IDS peak genericAPI</strong> to show you how to set
+camera parameters, start/stop image acquisition and capture a video with
+<strong>IDS peak IPL</strong>.</p></li>
+<li><p><strong>simple_live_qtwidgets</strong><br />
+Simple example for usage with Qt widgets GUI to display images.</p></li>
+<li><p><strong>start_stop_acquisition_software_trigger</strong><br />
+Shows how to start/stop image acquisition and how to capture images
+using a software trigger.</p></li>
+<li><p><strong>unicast</strong><br />
+Detecting cameras across subnet boundaries: This example demonstrates
+how you can identify and operate cameras across subnet boundaries. You
+will be prompted to select a network interface and enter the unicast IP
+addresses of the target cameras. The transport layer is configured to
+use only unicast discovery. Broadcast discovery is explicitly disabled.
+The identified cameras are listed with detailed information.</p></li>
+</ul>
+</details>
+
+<h4 id="third-party-samples">Third party samples</h4>
+<details>
+<summary> HALCON </summary>
+
+<ul>
+<li><p><strong>simple_live_halcon</strong><br />
+Opening a camera and grabbing images.</p></li>
+<li><p><strong>triggered_live_halcon</strong><br />
+Configuring and using triggered image acquisition.</p></li>
+</ul>
+</details>
+
+<details>
+<summary> MIL </summary>
+
+<ul>
+<li><p><strong>simple_live_mil</strong><br />
+Opening a camera and grabbing images.</p></li>
+<li><p><strong>triggered_live_mil</strong><br />
+Configuring and using triggered image acquisition.</p></li>
+</ul>
+</details>
+
+<h2 id="notes-for-gige-vision-cameras">Notes for GigE Vision cameras<a href="#top" class="back-to-top"></a></h2>
+<h3 id="setting-the-ip-address-for-gige-vision-cameras">Setting the IP
+address for GigE Vision cameras</h3>
+<p>A valid IP address must be assigned to GigE Vision cameras before
+they can be used.</p>
+<p><strong>You must be root to be able to set the IP
+address.</strong></p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>Some Linux distributions require that you enable the LLA profile
+(link-local address) on the network adapter if there is no DHCP server
+on the subnet.</p>
+</div>
+<ol type="1">
+<li>Open the <strong>IDS peak Cockpit</strong>.</li>
+<li>Open the camera manager.</li>
+<li>Select the camera in the camera manager.</li>
+<li>Open the <strong>IP configuration</strong> dialog in the camera
+manager.</li>
+<li>Assign a valid IP address to the camera.
+<ol type="1">
+<li>Select <strong>New network configuration</strong>.</li>
+<li>Either enter an IP address and subnet mask for the camera or click
+on the <strong>Find IP address and subnet mask</strong> button.</li>
+<li>Confirm your settings with <strong>Apply new settings</strong>.</li>
+</ol></li>
+<li>The new settings are applied and the camera is rebooted.</li>
+</ol>
+<h3 id="enabling-jumbo-frames-for-gige-vision-cameras">Enabling Jumbo
+Frames for GigE Vision cameras</h3>
+<p>For optimal performance, it is recommended to use Ethernet packet
+sizes which are larger than 1500 bytes. Recommended packet size is ~9000
+bytes or higher depending on the support of the used network controller.
+Your whole network infrastructure, e.g. switches, should support this
+Ethernet packet size; if not the GenTL will use the largest possible
+size.</p>
+<ul>
+<li>To set the MTU to 9000 bytes on interface
+<strong>eth0</strong>:</li>
+</ul>
+<pre class="bash"><code>[user@pc]$ sudo ip link set eth0 mtu 9000</code></pre>
+<h3 id="optimizing-network-stack-buffer-sizes">Optimizing network stack
+buffer sizes</h3>
+<p>The default Linux network stack is not optimized for transferring
+large amounts of data. Therefore, it is recommended to increase the
+internal buffer size of the UDP network stack to improve camera
+performance and avoid packet loss. But keep in mind that this increases
+the buffer sizes only at the endpoints if you are using switches or
+other network infrastructure, this might not have an effect.</p>
+<p>To increase the network stack buffer size for UDP edit the
+<code>/etc/sysctl.conf</code> file. If not present, add the following
+lines:</p>
+<pre class="bash"><code>net.core.rmem_max=26214400
+net.core.rmem_default=26214400</code></pre>
+<p>This sets the maximum buffer size to ~25 MB, whereas the default
+buffer size is usually 128 KB.</p>
+<p>In the folder
+<code>/opt/ids_peak_&lt;version&gt;_&lt;arch&gt;/share/ids-peak/scripts</code>
+respectively <code>/usr/share/ids-peak/scripts</code> for the installed
+Debian package you will find a script which is capable of adding these
+lines automatically. Run it with sudo:</p>
+<pre class="bash"><code>[user@pc]$ sudo /usr/share/ids-peak/scripts/ids_set_receive_buffer_size.sh</code></pre>
+<p>respectively:</p>
+<pre class="bash"><code>[user@pc]$ sudo /opt/ids_peak_&lt;version&gt;_&lt;arch&gt;/share/ids-peak/scripts/ids_set_receive_buffer_size.sh</code></pre>
+<p>Note that the script will not change the values if the entries are
+already present but it will tell you to check your values manually since
+they might already be higher than the 26214400 bytes. For the changes to
+become effective you have to reboot the system.</p>
+<h3 id="maximizing-the-receive-buffer-size">Maximizing the receive
+buffer size</h3>
+<p>For operating GigE cameras, it is recommended to set the
+<strong>receive buffer</strong> size (so-called receive descriptors) of
+the network card to its maximum value. Note that not all network cards
+provide this option.</p>
+<p>To determine the maximum possible buffer sizes, you can use the
+<code>ethtool</code> with the following command:</p>
+<pre class="bash"><code>[user@pc]$ ethtool -g &lt;interface_name&gt;</code></pre>
+<p>Set the sizes of rx and tx buffers:</p>
+<pre class="bash"><code>[user@pc]$ ethtool -G &lt;interface_name&gt; tx &lt;buffer_size&gt;
+[user@pc]$ ethtool -G &lt;interface_name&gt; rx &lt;buffer_size&gt;</code></pre>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>These settings will be reset after a reboot. In order to make the
+settings persistent, you could make a <code>systemd</code> service, for
+example.</p>
+</div>
+<p>An example <code>systemd</code> service could look like this, for
+example:</p>
+<pre class="bash"><code>[Unit]
+Description=Set ethtool parameters for eth0
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/sbin/ethtool -G eth0 rx 4096 tx 4096
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+</code></pre>
+<p>Such service files can be saved under
+<code>/etc/systemd/system/ethtool-settings.service</code>, for example,
+and enabled</p>
+<p>via the following commands:</p>
+<pre class="bash"><code>[user@pc]$ sudo systemctl enable ethtool-settings
+[user@pc]$ sudo systemctl start ethtool-settings</code></pre>
+<p>You can extend the service file by adding more
+<code>ExecStart=&lt;command&gt;</code> lines to the file.</p>
+<p>If using Ubuntu&#39;s NetworkManager, you could utilize a NetworkManager
+dispatcher script instead.</p>
+<h3 id="disabling-interrupt-throttling-rate-itr-for-10gige-cameras">Disabling
+interrupt throttling rate (ITR) for 10GigE cameras</h3>
+<p>Modern network interface drivers try to avoid high CPU load by
+reducing the number of interrupts they generate. Although this is
+generally good, the default settings of this option are not optimal for
+fast 10GigE cameras. In this case, the <strong>interrupt throttling
+rate</strong> (depending on the card manufacturer also: interrupt
+moderation rate) should be disabled.</p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>If you disable the <strong>interrupt throttling rate</strong>, the
+CPU load increases.</p>
+</div>
+<p>You can use the <code>ethtool</code> to disable the <strong>interrupt
+throttling rate</strong> (ITR).</p>
+<details>
+<summary>1. Check the current interrupt coalescing settings.</summary>
+
+<p>You can view the current interrupt moderation settings for your
+network interface using the <code>ethtool -c</code> command. Replace
+<code>&lt;interface&gt;</code> with the name of your network interface
+(e.g. <code>eth0, enp3s0</code>, etc.):</p>
+<pre class="bash"><code>[user@pc]$ sudo ethtool -c &lt;interface&gt;</code></pre>
+<p>This shows the current settings for <strong>coalescing</strong>
+parameters like <strong>usecs</strong> (microseconds between interrupts)
+and <strong>pkts</strong> (the number of packets before generating an
+interrupt). You typically see something like this:</p>
+<pre class="bash"><code>Coalesce parameters for &lt;interface&gt;:
+Pre-set maximums:
+RX-usecs: 0
+RX-frames: 0
+TX-usecs: 0
+TX-frames: 0
+Current settings:
+RX-usecs: 20
+RX-frames: 0
+TX-usecs: 0
+TX-frames: 0</code></pre>
+</details>
+
+<details>
+<summary>2. Disable interrupt throttling.</summary>
+
+<p>To disable the interrupt throttling (moderation), you set
+<strong>RX-usecs</strong> to 0, which effectively disables interrupt
+moderation for the receiving side. Set <strong>adaptive-rx</strong> to
+off to improve the latency at high packet receiving rates.</p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>Some NIC drivers do not support this feature.</p>
+</div>
+<pre class="bash"><code>[user@pc]$ sudo ethtool -C &lt;interface&gt; rx-usecs 0 adaptive-rx off
+[user@pc]$ sudo ethtool -C &lt;interface&gt; tx-usecs 0 adaptive-tx off</code></pre>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>These settings will be reset after a reboot. In order to make the
+settings persistent, you could make a <code>systemd</code> service, for
+example. Refer to the <a href="#maximizing-the-receive-buffer-size">Maximizing the
+<strong>receive buffer</strong> size</a> section for an example service
+file.</p>
+</div>
+</details>
+
+<h3 id="further-settings">Further settings</h3>
+<p>If you still have issues, you may find some of these settings
+helpful.</p>
+<details>
+<summary>Enabling receive packet steering (RPS)</summary>
+
+<p>By default, the CPU that handles the network interrupt will also
+handle the processing of the relevant packets. This may result in a
+performance bottleneck, especially in high-bandwidth applications such
+as GigE Vision cameras, where a large number of packets must be
+processed at high speeds.</p>
+<p>Receive packet steering (RPS) allows the network stack to distribute
+packet processing across multiple CPU cores, reducing CPU contention and
+improving overall throughput. This is particularly useful when dealing
+with high frame rates and large image sizes, as it helps prevent a
+single core from becoming overwhelmed, reducing packet loss and
+improving real-time performance.</p>
+<p>RPS is enabled by writing to
+<code>/sys/class/net/&lt;device&gt;/queues/&lt;rx-queue&gt;/rps_cpus</code>,
+which defines a bitmap indicating which CPUs are allowed to handle
+packet processing.</p>
+<p>By default, all bits are set to 0, disabling RPS. As a result, the
+CPU handling the interrupt will also process the packet. To enable RPS
+and designate specific CPUs for packet processing on the receive queue,
+you must set the corresponding bits in the bitmap to 1.</p>
+<p>The following example would allow all cores on a quad core CPU to be
+used for packet processing:</p>
+<pre class="bash"><code>[user@pc]$ sudo echo f &gt; /sys/class/net/&lt;device&gt;/queues/&lt;rx-queue&gt;/rps_cpus</code></pre>
+<p>If there are multiple queues, each file in
+<code>&lt;rx-queue&gt;</code> must be written separately to configure
+this setting.</p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>These settings will be reset after a reboot. In order to make the
+settings persistent, you could make a <code>systemd</code> service, for
+example. Refer to the <a href="#maximizing-the-receive-buffer-size">Maximizing the
+<strong>receive buffer</strong> size</a> section for an example service
+file.</p>
+</div>
+</details>
+
+<details>
+<summary>Fair queueing (FQ)</summary>
+
+<p>Fair queueing (FQ) ensures that packets from multiple flows are
+distributed fairly. There are different fair queue modes available. If
+supported, it is recommended to use <code>fq_codel</code>, otherwise use
+<code>fq</code>. FQ helps reduce out-of-order packet issues and minimize
+latency, particularly under heavy load. If available, use
+<code>fq_codel</code> for UDP streams and real-time applications as it
+actively reduces packet congestion.</p>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>These queue types are not supported by all NIC drivers.</p>
+</div>
+<p>To check the current queue settings, run the following command:</p>
+<pre class="bash"><code>[user@pc]$ tc qdisc show dev &lt;interface&gt;</code></pre>
+<p>Use this command to set up FQ:</p>
+<pre class="bash"><code>[user@pc]$ sudo tc qdisc replace dev &lt;interface&gt; root fq_codel</code></pre>
+<div class="note">
+<div class="title">
+<p>Note</p>
+</div>
+<p>These settings will be reset after a reboot. In order to make the
+settings persistent, you could make a <code>systemd</code> service, for
+example. Refer to the <a href="#maximizing-the-receive-buffer-size">Maximizing the
+<strong>receive buffer</strong> size</a> section for an example service
+file.</p>
+</div>
+</details>
+
+<details>
+<summary>Thread priority</summary>
+
+<p>Increasing the priority of the application that is running the image
+acquisition can greatly improve performance, independent of the
+underlying technology.</p>
+<p>Start an application with real-time priority using the following
+command:</p>
+<pre class="bash"><code>[user@pc]$ sudo chrt -f 99 &lt;command&gt;</code></pre>
+</details>
+
+<h2 id="notes-for-usb3-vision-cameras">Notes for USB3 Vision cameras<a href="#top" class="back-to-top"></a></h2>
+<h3 id="usb3-vision-cameras-under-usb-20">USB3 Vision cameras under USB
+2.0</h3>
+<p>USB3 Vision cameras offer only limited functionality when connected
+via USB 2.0. Depending on the camera model, not all camera functions are
+available in USB 2.0 mode. USB3 cameras are optimized for USB 3.0 ports
+and are not tested by IDS Imaging Development Systems GmbH under USB
+2.0.</p>
+<p>Note that due to the high performance of modern sensors, some USB3
+models are not supported in USB 2.0 mode anymore, as the USB 2.0
+interface does not provide enough power.</p>
+<h3 id="multi-camera-system-with-usb-camerashigh-resolution-camerascameras-without-image-memory">Multi-camera
+system with USB cameras/high resolution cameras/cameras without image
+memory</h3>
+<p>The default buffer memory value of the USB file system is often too
+low for a multi-camera system/high resolution cameras. Increase the
+memory value to avoid transfer losses. To adjust the memory value, you
+must change the <strong>usbfs_memory_mb</strong> parameter with root
+privileges.</p>
+<p>Example: Increase temporarily the parameter
+<strong>usbfs_memory_mb</strong> to 1000 MB (until the next PC
+reboot).</p>
+<pre class="bash"><code>echo &#39;new size&#39; &gt; /sys/module/usbcore/parameters/usbfs_memory_mb
+echo 1000 &gt; /sys/module/usbcore/parameters/usbfs_memory_mb</code></pre>
+<p>In the folder
+<code>/opt/ids_peak_&lt;version&gt;_&lt;arch&gt;/share/ids-peak/scripts</code>
+respectively <code>/usr/share/ids-peak/scripts</code> for the Debian
+package, you find a script to change persistently the
+<strong>usbfs_memory_mb</strong> parameter. Run it with sudo:</p>
+<pre class="bash"><code>[user@pc]$ sudo /usr/share/ids-peak/scripts/ids_set_usb_mem_size.sh</code></pre>
+<p>respectively:</p>
+<pre class="bash"><code>[user@pc]$ sudo /opt/ids_peak_&lt;version&gt;_&lt;arch&gt;/share/ids-peak/scripts/ids_set_usb_mem_size.sh</code></pre>
+<div class="important">
+<div class="title">
+<p>Important</p>
+</div>
+<p>If it is not possible to adjust the memory value, you should adjust
+the following nodes in the <strong>DataStream</strong> module:</p>
+<ul>
+<li>Set <strong>U3VStreamChannelTransferRequestMode</strong> to the
+value <strong>Manual</strong>.</li>
+<li>Decrease the value of
+<strong>U3VStreamChannelTransferRequestCount</strong>.</li>
+</ul>
+<p>Note that these settings must be set for each camera and stream
+respectively!</p>
+</div>
+<h4 id="thread-priority">Thread priority</h4>
+<p>Increasing the priority of the application that is running the image
+acquisition can greatly improve performance, independent of the
+underlying technology.</p>
+<p>Start an application with real-time priority using the following
+command:</p>
+<pre class="bash"><code>[user@pc]$ sudo chrt -f 99 &lt;command&gt;</code></pre>
+<h2 id="integrating-cameras-into-own-applications">Integrating cameras
+into own applications<a href="#top" class="back-to-top"></a></h2>
+<p>How to integrate IDS industrial cameras with <strong>IDS
+peak</strong> in your own application is described in the further
+documentation of <strong>IDS peak</strong> which can be found in</p>
+<ul>
+<li><p><a href="https://en.ids-imaging.com/manuals/ids-peak/ids-peak-user-manual/en/index.html">IDS
+peak manual on our website</a></p></li>
+<li><p>Debian package:</p>
+<ul>
+<li>IDS peak comfortSDK:
+<code>/usr/share/doc/ids-peak/ids_peak_comfort_c-&lt;version&gt;</code></li>
+<li>IDS peak genericSDK:
+<code>/usr/share/doc/ids-peak/ids_peak-&lt;version&gt;</code></li>
+<li>IDS peak AFL:
+<code>/usr/share/doc/ids-peak/ids_peak_afl-&lt;version&gt;</code></li>
+<li>IDS peak ICV:
+<code>/usr/share/doc/ids-peak/ids_peak-icv&lt;version&gt;</code></li>
+<li>IDS peak IPL:
+<code>/usr/share/doc/ids-peak/ids_peak_ipl-&lt;version&gt;</code></li>
+</ul></li>
+<li><p>TAR archive:</p>
+<ul>
+<li>IDS peak comfortSDK:
+<code>/share/doc/ids-peak/ids_peak_comfort_c-&lt;version&gt;</code></li>
+<li>IDS peak genericSDK:
+<code>/share/doc/ids-peak/ids_peak-&lt;version&gt;</code></li>
+<li>IDS peak AFL:
+<code>/share/doc/ids-peak/ids_peak_afl-&lt;version&gt;</code></li>
+<li>IDS peak ICV:
+<code>/share/doc/ids-peak/ids_peak_icv-&lt;version&gt;</code></li>
+<li>IDS peak IPL:
+<code>/share/doc/ids-peak/ids_peak_ipl-&lt;version&gt;</code></li>
+</ul></li>
+</ul>
+<h2 id="list-of-contained-files--dependencies">List of contained files /
+dependencies<a href="#top" class="back-to-top"></a></h2>
+<p>The software includes some parts that are copyright-protected from
+access by third parties, and which were published under Open Source
+licensing conditions, see either list on <a href="https://en.ids-imaging.com/open-source.html"><span>https://en.ids-imaging.com/open-source.html</span></a>
+or</p>
+<p><code>/usr/share/doc/ids-peak/licenses</code> or
+<code>/opt/ids-peak_&lt;version&gt;_&lt;arch&gt;/share/doc/ids-peak/licenses</code>.</p>
+<p>The Open Source parts may be used under the terms and conditions of
+their corresponding Open Source licenses. You will find the Open Source
+licenses in the <code>thirdparty_licenses.txt</code> file.</p>
+<h2 id="uninstallation">Uninstallation<a href="#top" class="back-to-top"></a></h2>
+<p>There are two different ways for uninstallation: either for Debian or
+any other Linux distribution.</p>
+<h3 id="debian-packages">Debian packages</h3>
+<p>Using <code>sudo</code>:</p>
+<pre class="bash"><code>[user@pc]$ sudo apt-get remove ids-peak*</code></pre>
+<h3 id="archive">Archive</h3>
+<p>Run the <code>ids_uninstall_udev_rule.sh</code> in the folder
+<code>/opt/ids-peak_&lt;version&gt;_&lt;arch&gt;/share/ids-peak/scripts</code>
+to remove the udev rule or remove it manually.</p>
+<p>Delete all files in the installation folder, for example
+<code>/opt/ids-peak_&lt;version&gt;_&lt;arch&gt;</code>.</p>
+<p>Check your <code>.config</code> directory in your home folder and
+delete the folder <code>IDS Imaging Development Systems GmbH</code> if
+you do not want to reuse the configurations.</p>
+<h2 id="known-issues">Known issues<a href="#top" class="back-to-top"></a></h2>
+<p>Find information on known issues and possible solutions. The list of
+known issues is updated regularly.</p>
+<hr />
+<h3 id="issue-issue-on-nautilus-ubuntu-the-icon-of-a-guf-file-is-not-shown-in-the-file-system">Issue:
+Issue on Nautilus (Ubuntu): The icon of a GUF File is not shown in the
+file system</h3>
+<ul>
+<li><strong>Details:</strong> From version 2.2 it is possible to update
+a Vision camera by double-clicking on the GUF file. Unfortunately, no
+icon is shown for the GUF file under Nautilus.</li>
+<li><strong>Solution:</strong> Currently no solution as this is an issue
+in Nautilus itself.</li>
+</ul>
+<hr />
+<h3 id="issue-default-video-player-on-debian-might-cause-stripes-in-recorded-videos">Issue:
+Default video player on Debian might cause stripes in recorded
+videos</h3>
+<ul>
+<li><strong>Details:</strong> If you use the default Debian video player
+to replay the recorded AVI files, stripes may appear in the video. This
+is caused by the cluttervideosink gstreamer plugin of Gnome.</li>
+<li><strong>Solution:</strong> Try to replay the video without stripes
+with the following command:</li>
+</ul>
+<pre class="bash"><code>gst-launch-1.0 filesrc location=video_file ! decodebin ! videoconvert ! autovideosink</code></pre>
+<hr />
+<h3 id="issue-the-systems-standard-video-player-cannot-replay-the-recorded-video">Issue:
+The system&#39;s standard video player cannot replay the recorded video</h3>
+<ul>
+<li><strong>Details:</strong> For recording, the GRAY8 MJPEG format is
+used. This format is not supported by all video players.</li>
+<li><strong>Solution:</strong> It is recommended to use the VLC video
+player.</li>
+</ul>
+<hr />
+<h3 id="issue-a-connected-gige-vision-camera-is-not-visible-in-ids-peak-cockpit">Issue:
+A connected GigE Vision camera is not visible in IDS peak Cockpit</h3>
+<ul>
+<li><strong>Details:</strong> If a GigE Vision camera is on a different
+subnet than the network adapter, the <strong>IDS peak Cockpit</strong>
+must be run as root to find the camera.</li>
+<li><strong>Solution:</strong> Start the <strong>IDS peak
+Cockpit</strong> as root to configure GigE Vision cameras from a
+different subnet.</li>
+</ul>
+<hr />
+<h3 id="issue-windows-in-the-ids-peak-cockpit-cannot-be-moved">Issue:
+Windows in the IDS peak Cockpit cannot be moved</h3>
+<ul>
+<li><p><strong>Details:</strong> It may occur that dialog windows in the
+<strong>IDS peak Cockpit</strong> cannot be moved.</p>
+<ul>
+<li>This is an issue with wayland and Qt.</li>
+<li>The Qt programs need to be run under xwayland.</li>
+</ul></li>
+<li><p><strong>Solution:</strong> Run the executable with
+<code>QT_QPA_PLATFORM=xcb</code>, e.g.:</p>
+<pre class="bash"><code>  QT_QPA_PLATFORM=xcb /usr/bin/ids_peak_cockpit</code></pre>
+<ul>
+<li>The starter scripts include the workaround.</li>
+<li>If an error occurs, try to install xwayland via the distribution
+installer, e.g. <code>apt install xwayland</code>.</li>
+</ul></li>
+</ul>
+<hr />
+<h3 id="issue-during-runtime-changes-to-the-network-configuration-are-not-detected-by-the-gentl">Issue:
+During runtime, changes to the network configuration are not detected by
+the GenTL</h3>
+<ul>
+<li><strong>Details:</strong> The GenTL cannot handle changes to the
+system&#39;s network configuration during runtime.</li>
+<li><strong>Solution:</strong> If you want to change the network
+configuration, first close the application and restart the application
+after you changed the network configuration. This behavior also affects
+the <strong>IDS peak Cockpit</strong>.</li>
+</ul>
+<hr />
+<h3 id="issue-it-is-not-possible-to-operate-a-usb-3-ueye-xcpxlexls-camera-on-a-usb-20-port">Issue:
+It is not possible to operate a USB 3 uEye XCP/XLE/XLS camera on a USB
+2.0 port</h3>
+<ul>
+<li><strong>Details:</strong> USB 3 uEye cameras are optimized for use
+on USB 3.0 ports. In some cases, certain models can be used with
+restrictions on USB 2.0 ports.</li>
+<li><strong>Solution:</strong> USB 3 uEye XCP/XLE/XLS camera models do
+not support USB 2.0 operation.</li>
+</ul>
+<hr />
+<h3 id="issue-usb-3-ueye-xcpxlexls-camera-and-interface-cards-with-asmedia-chipset">Issue:
+USB 3 uEye XCP/XLE/XLS camera and interface cards with ASMedia
+chipset</h3>
+<ul>
+<li><strong>Details:</strong> In some cases, there are issues with USB 3
+uEye XCP/XLE/XLS cameras and interface cards with ASMedia chipsets.</li>
+<li><strong>Solution:</strong> To avoid issues with these camera models,
+we recommend to set the parameter
+<code>U3vStreamChannelTransferRequestCount = 1</code>. This reduces the
+number of USB transfer requests. (Default setting for
+<code>U3vStreamChannelTransferRequestCount = 6</code>).</li>
+</ul>
+<hr />
+<h3 id="issue-labview-and-template-functions">Issue: LabVIEW and
+template functions</h3>
+<ul>
+<li><strong>Details:</strong> LabVIEW does not support template
+functions as they are used for <code>FindNode()</code> for example
+(<strong>IDS peak genericSDK</strong>).</li>
+<li><strong>Solution:</strong> As a workaround, all possible templates
+of <code>FindNode</code>, <code>FindInvalidatedNode</code>,
+<code>FindInvalidatingNode</code>, <code>FindSelectedNode</code>, and
+<code>FindSelectingNode</code> are provided as separate functions in
+addition to the regular generic function.</li>
+</ul>
+<hr />
+<h3 id="issue-systemdllnotfoundexception-when-trying-to-run-the-net-6-samples-inside-the-official-dotnetruntime60-container">Issue:
+System.DllNotFoundException when trying to run the .NET 6 samples inside
+the official dotnet/runtime:6.0 container</h3>
+<ul>
+<li><strong>Details:</strong> When trying to start a sample inside the
+container it will fail to load with, e.g. the following error message:
+<code>System.DllNotFoundException: Unable to load shared library **libids_peak_dotnet_interface** or one of its dependencies</code>.
+Most likely the dynamic linker is not able to find
+<code>libatomic.so.1</code>, since it is not included in the container
+by default.</li>
+<li><strong>Solution:</strong> Install the <code>libatomic1</code>
+package or something comparable on your platform.</li>
+</ul>
+<h2 id="contact">Contact<a href="#top" class="back-to-top"></a></h2>
+<p>IDS Imaging Development Systems GmbH<br />
+Dimbacher Str. 10<br />
+74182 Obersulm/Germany<br />
++49 7134 96196-0<br />
+<a href="/cdn-cgi/l/email-protection#3c55525a537c55584f1155515d5b55525b125f5351"><span><span class="__cf_email__" data-cfemail="92fbfcf4fdd2fbf6e1bffbfff3f5fbfcf5bcf1fdff">[email&#160;protected]</span></span></a></p>
+<p><a href="https://en.ids-imaging.com">https://en.ids-imaging.com</a><br />
+© IDS Imaging Development Systems GmbH, February 2026</p>
+<script data-cfasync="false" src="/cdn-cgi/scripts/5c5dd728/cloudflare-static/email-decode.min.js"></script></body>
+</html>

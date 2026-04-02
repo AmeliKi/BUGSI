@@ -157,12 +157,25 @@ class ImageCapturePipeline:
                     logger.warning("Failed to power off Zigbee after capture")
 
     def _capture_still(self) -> np.ndarray:
-        """Open still camera, capture one frame, close immediately."""
-        self._still_camera.open()
-        try:
-            return self._still_camera.capture()
-        finally:
-            self._still_camera.close()
+        """Open still camera, capture one frame, close immediately.
+
+        Retries once on failure to handle USB re-enumeration: the first
+        ``open()`` may connect to a stale device reference; closing and
+        re-opening lets the SDK rediscover the camera on its new port.
+        """
+        for attempt in range(2):
+            self._still_camera.open()
+            try:
+                return self._still_camera.capture()
+            except Exception:
+                logger.warning("Still capture attempt %d failed, re-opening camera", attempt + 1)
+                try:
+                    self._still_camera.close()
+                except Exception:
+                    pass
+                if attempt == 0:
+                    continue
+                raise
 
     def _save_image(
         self,

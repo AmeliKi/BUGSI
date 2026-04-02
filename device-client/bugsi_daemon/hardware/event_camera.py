@@ -11,12 +11,17 @@ import asyncio
 import glob
 import logging
 import os
+import time
 
 import numpy as np
 
 from bugsi_daemon.hardware.base import EventCameraInterface, register_event_camera
 
 logger = logging.getLogger(__name__)
+
+_RETRY_BASE_DELAY = 1.0      # Initial retry delay in seconds
+_RETRY_MAX_DELAY = 30.0      # Maximum retry delay in seconds
+_RETRY_BACKOFF_FACTOR = 2.0  # Exponential backoff multiplier
 
 
 @register_event_camera("prophesee_genx320")
@@ -48,6 +53,8 @@ class PropheseeEventCamera(EventCameraInterface):
         logger.warning("Could not auto-detect GenX320, falling back to /dev/video0")
         return "/dev/video0"
 
+    DETECTION_COOLDOWN_S = 2.0  # seconds between detection signals/log messages
+
     def __init__(
         self,
         device_path: str = "auto",
@@ -55,6 +62,7 @@ class PropheseeEventCamera(EventCameraInterface):
         detection_window_ms: int = 50,
         min_cluster_area: int = 100,
     ) -> None:
+        self._configured_path = device_path
         self._device_path = self._resolve_device_path(device_path)
         self._event_threshold = event_threshold
         self._detection_window_ms = detection_window_ms
@@ -65,6 +73,7 @@ class PropheseeEventCamera(EventCameraInterface):
         self._detection_event = asyncio.Event()
         self._detection_task: asyncio.Task | None = None
         self._last_event_frame: np.ndarray | None = None
+        self._last_detection_time: float = 0.0
 
     async def initialize(self) -> None:
         try:
@@ -73,6 +82,8 @@ class PropheseeEventCamera(EventCameraInterface):
             raise NotImplementedError(
                 "metavision_core not available — install OpenEB SDK on Raspberry Pi"
             )
+        if self._configured_path == "auto":
+            self._device_path = self._resolve_device_path("auto")
         if not os.path.exists(self._device_path):
             raise NotImplementedError(
                 f"V4L2 device {self._device_path} not found — "
@@ -135,47 +146,79 @@ class PropheseeEventCamera(EventCameraInterface):
         return self._detecting
 
     async def _detection_loop(self) -> None:
-        """Background task: read events and trigger detections."""
+        """Background task: read events and trigger detections.
+
+        Re-resolves the device path when configured as ``"auto"`` and retries
+        with exponential backoff when the camera cannot be opened (e.g. after
+        a USB port change).
+        """
         from metavision_core.event_io import EventsIterator
 
-        loop = asyncio.get_event_loop()
+        delay = _RETRY_BASE_DELAY
         try:
-            iterator = EventsIterator(
-                self._device_path,
-                delta_t=self._detection_window_ms * 1000,  # microseconds
-            )
+            while self._detecting:
+                # Re-resolve on each attempt when configured as "auto"
+                if self._configured_path == "auto":
+                    self._device_path = self._resolve_device_path("auto")
 
-            for events in iterator:
-                if not self._detecting:
-                    break
-
-                # Accumulate events into a frame for visualization
-                frame = np.zeros((480, 640, 3), dtype=np.uint8)
-                if len(events) > 0:
-                    x = events["x"]
-                    y = events["y"]
-                    p = events["p"]
-                    valid = (x < 640) & (y < 480)
-                    frame[y[valid & (p == 1)], x[valid & (p == 1)]] = [0, 0, 255]
-                    frame[y[valid & (p == 0)], x[valid & (p == 0)]] = [255, 0, 0]
-
-                self._last_event_frame = frame
-
-                # Detection: threshold on event count
-                if len(events) >= self._event_threshold:
-                    logger.info(
-                        "Insect detection: %d events (threshold=%d)",
-                        len(events),
-                        self._event_threshold,
+                try:
+                    iterator = EventsIterator(
+                        self._device_path,
+                        delta_t=self._detection_window_ms * 1000,  # microseconds
                     )
-                    self._detection_event.set()
+                except Exception:
+                    logger.warning(
+                        "Failed to open event camera at %s, retrying in %.1fs",
+                        self._device_path, delay,
+                    )
+                    await asyncio.sleep(delay)
+                    delay = min(delay * _RETRY_BACKOFF_FACTOR, _RETRY_MAX_DELAY)
+                    continue
 
-                # Yield to event loop
-                await asyncio.sleep(0)
+                delay = _RETRY_BASE_DELAY  # reset on success
+
+                try:
+                    for events in iterator:
+                        if not self._detecting:
+                            break
+
+                        # Accumulate events into a frame for visualization
+                        frame = np.zeros((480, 640, 3), dtype=np.uint8)
+                        if len(events) > 0:
+                            x = events["x"]
+                            y = events["y"]
+                            p = events["p"]
+                            valid = (x < 640) & (y < 480)
+                            frame[y[valid & (p == 1)], x[valid & (p == 1)]] = [0, 0, 255]
+                            frame[y[valid & (p == 0)], x[valid & (p == 0)]] = [255, 0, 0]
+
+                        self._last_event_frame = frame
+
+                        # Detection: threshold on event count with cooldown
+                        if len(events) >= self._event_threshold:
+                            now = time.monotonic()
+                            if now - self._last_detection_time >= self.DETECTION_COOLDOWN_S:
+                                self._last_detection_time = now
+                                logger.info(
+                                    "Insect detection: %d events (threshold=%d)",
+                                    len(events),
+                                    self._event_threshold,
+                                )
+                                self._detection_event.set()
+
+                        # Yield to event loop
+                        await asyncio.sleep(0)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "Event camera read failed at %s, retrying in %.1fs",
+                        self._device_path, delay,
+                    )
+                    await asyncio.sleep(delay)
+                    delay = min(delay * _RETRY_BACKOFF_FACTOR, _RETRY_MAX_DELAY)
 
         except asyncio.CancelledError:
             pass
-        except Exception:
-            logger.exception("Event camera detection loop failed")
         finally:
             self._detecting = False

@@ -21,6 +21,9 @@ class MockCamera(StillCameraInterface):
         resolution_height: int = 480,
         camera_id: int = 0,
         autofocus_mode: str = "continuous",
+        exposure_us: float = 0,
+        gain_db: float = 0.0,
+        **kwargs,
     ) -> None:
         self._width = resolution_width
         self._height = resolution_height

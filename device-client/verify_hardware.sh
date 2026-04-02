@@ -9,6 +9,13 @@ FAIL="\033[1;31mFAIL\033[0m"
 WARN="\033[1;33mWARN\033[0m"
 results=()
 
+# Read hardware configuration
+HW_CONFIG="A"  # default to IDS
+HARDWARE_CONF="/etc/bugsi/hardware.conf"
+if [[ -f "$HARDWARE_CONF" ]]; then
+    source "$HARDWARE_CONF"
+fi
+
 check() {
     local name="$1" cmd="$2"
     echo "--- $name ---"
@@ -24,28 +31,59 @@ check() {
     echo
 }
 
-echo "=== BUGSI Hardware Verification ==="
+echo "=== BUGSI Hardware Verification (Option $HW_CONFIG) ==="
 echo
 
-# 1. Prophesee DKMS drivers
-check "Prophesee DKMS drivers" \
-    "dkms status 2>/dev/null | grep -q 'psee_sensor_drivers.*installed' && dkms status | grep psee_sensor_drivers"
+if [[ "$HW_CONFIG" == "A" ]]; then
+    # --- IDS USB Camera checks ---
 
-# 2. Prophesee OpenEB
-check "Prophesee OpenEB" \
-    "ldconfig -p 2>/dev/null | grep -q metavision && echo 'OpenEB libraries found' || (test -f /usr/local/lib/libmetavision_sdk_core.so && echo 'OpenEB installed at /usr/local/lib')"
+    # 1. IDS Event Camera USB device
+    check "IDS USB Event Camera (USB device)" \
+        "lsusb 2>/dev/null | grep -q '1409:8e00' && echo 'IDS uEye EVS device found' || echo 'IDS device not connected (vendor 1409:8e00)'"
 
-# 3. Prophesee dtoverlay
-check "Prophesee dtoverlay (genx320,cam0)" \
-    "grep -q 'dtoverlay=genx320,cam0' /boot/firmware/config.txt && echo 'dtoverlay=genx320,cam0 configured'"
+    # 2. OpenEB + uEye EVS plugin
+    check "IDS uEye EVS plugin (OpenEB)" \
+        "test -f /opt/prophesee/openeb/build/lib/libueye_evs_hal_plugin.so && echo 'uEye EVS HAL plugin found'"
 
-# 4. ArduCam 64MP
-check "ArduCam 64MP camera" \
-    "rpicam-still --list-cameras 2>&1 | head -20"
+    # 3. IDS udev rules
+    check "IDS uEye EVS udev rules" \
+        "test -f /etc/udev/rules.d/99-ueye_evs.rules && echo 'udev rules installed'"
 
-# 5. ArduCam dtoverlay
-check "ArduCam dtoverlay" \
-    "grep -q 'dtoverlay=arducam-64mp' /boot/firmware/config.txt && echo 'dtoverlay=arducam-64mp configured'"
+    # 4. IDS Peak (RGB camera)
+    check "IDS Peak SDK installed" \
+        "test -d /opt/ids/ids-peak_2.20.0.0-408_arm64 && echo 'IDS Peak SDK found'"
+
+    # 5. IDS Peak Python bindings
+    check "IDS Peak Python bindings" \
+        "/opt/bugsi/venv/bin/python -c 'import ids_peak' 2>/dev/null && echo 'ids_peak importable'"
+
+    # 6. IDS environment variables
+    check "IDS environment variables (profile.d)" \
+        "test -f /etc/profile.d/ids-event-camera.sh && test -f /etc/profile.d/ids-rgb-camera.sh && echo 'profile.d scripts present'"
+
+elif [[ "$HW_CONFIG" == "B" ]]; then
+    # --- Prophesee + ArduCam checks ---
+
+    # 1. Prophesee DKMS drivers
+    check "Prophesee DKMS drivers" \
+        "dkms status 2>/dev/null | grep -q 'psee_sensor_drivers.*installed' && dkms status | grep psee_sensor_drivers"
+
+    # 2. Prophesee OpenEB
+    check "Prophesee OpenEB" \
+        "ldconfig -p 2>/dev/null | grep -q metavision && echo 'OpenEB libraries found' || (test -f /usr/local/lib/libmetavision_sdk_core.so && echo 'OpenEB installed at /usr/local/lib')"
+
+    # 3. Prophesee dtoverlay
+    check "Prophesee dtoverlay (genx320,cam0)" \
+        "grep -q 'dtoverlay=genx320,cam0' /boot/firmware/config.txt && echo 'dtoverlay=genx320,cam0 configured'"
+
+    # 4. ArduCam 64MP
+    check "ArduCam 64MP camera" \
+        "rpicam-still --list-cameras 2>&1 | head -20"
+
+    # 5. ArduCam dtoverlay
+    check "ArduCam dtoverlay" \
+        "grep -q 'dtoverlay=arducam-64mp' /boot/firmware/config.txt && echo 'dtoverlay=arducam-64mp configured'"
+fi
 
 # 6. Witty Pi 5
 check "Witty Pi 5 software" \

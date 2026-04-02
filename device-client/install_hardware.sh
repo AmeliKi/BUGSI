@@ -2,26 +2,70 @@
 # =============================================================================
 # BUGSI Hardware Install Script for Raspberry Pi 5 (Debian Trixie)
 #
-# Installs and configures:
-#   1. Prophesee GenX320 Event Camera (cam0)
-#   2. ArduCam 64MP Hawkeye (cam1)
+# Supports two camera configurations:
+#   A) IDS USB Event Camera + IDS RGB Camera      [default]
+#   B) Prophesee GenX320 Event Camera + ArduCam 64MP Hawkeye
+#
+# Common hardware (installed for both):
 #   3. Witty Pi 5 (Power Management + RTC)
-#   4. Zigbee2MQTT (as systemd service)
+#   4. Zigbee (zigpy + bellows)
 #   5. LTE Modem (Quectel, ECM mode)
 #   6. Network Priority (WLAN preferred over LTE)
 #
-# Usage: sudo ./install_hardware.sh
+# Usage: sudo ./install_hardware.sh [--config=A|B]
 # =============================================================================
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_TXT="/boot/firmware/config.txt"
 PROPHESEE_DIR="/opt/prophesee"
+HARDWARE_CONF="/etc/bugsi/hardware.conf"
+VENV_DIR="/opt/bugsi/venv"
+IDS_PEAK_DIR="/opt/ids/ids-peak_2.20.0.0-408_arm64"
+DOWNLOAD_CACHE="/opt/bugsi/downloads"
+
+# --- Parse flags -------------------------------------------------------------
+HW_CONFIG=""
+HW_PRESELECTED=false
+for arg in "$@"; do
+    case "$arg" in
+        --config=A|--config=a) HW_CONFIG="A"; HW_PRESELECTED=true ;;
+        --config=B|--config=b) HW_CONFIG="B"; HW_PRESELECTED=true ;;
+        --config=*) echo "Invalid --config value. Use --config=A or --config=B" >&2; exit 1 ;;
+    esac
+done
 
 # --- Helpers -----------------------------------------------------------------
 
 log()  { echo -e "\033[1;32m[BUGSI]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[WARN]\033[0m $*"; }
 err()  { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; }
+
+ensure_venv() {
+    if [[ ! -d "$VENV_DIR" ]]; then
+        log "Creating Python venv at $VENV_DIR..."
+        mkdir -p "$(dirname "$VENV_DIR")"
+        python3 -m venv --system-site-packages "$VENV_DIR"
+    fi
+}
+
+download_heavy_file() {
+    local filename="$1" dest="$2"
+    local creds="/mnt/usb/bugsi/credentials.json"
+    if [[ ! -f "$creds" ]]; then
+        err "Credentials not found at $creds — cannot download $filename"
+        err "Either place the tarball at $dest manually or configure credentials"
+        exit 1
+    fi
+    local api_url api_key
+    api_url=$(python3 -c "import json; print(json.load(open('$creds'))['api_url'])")
+    api_key=$(python3 -c "import json; print(json.load(open('$creds'))['api_key'])")
+    mkdir -p "$(dirname "$dest")"
+    log "Downloading $filename from backend (this may take a while over LTE)..."
+    curl -fSL --retry 3 -H "X-API-Key: $api_key" \
+        "${api_url}/files/${filename}" -o "$dest"
+    log "Downloaded $filename ($(du -h "$dest" | cut -f1))"
+}
 
 sync_barrier() {
     local stage="$1"
@@ -91,6 +135,44 @@ log "=== BUGSI Hardware Install Script ==="
 log "Target: Raspberry Pi 5 — Debian Trixie"
 echo
 
+# --- Hardware configuration selection ----------------------------------------
+log "Which camera hardware should be installed?"
+echo
+echo "  A) IDS USB Event Camera + IDS RGB Camera  [default]"
+echo "  B) Prophesee GenX320 Event Camera + ArduCam 64MP Hawkeye"
+echo
+
+if [[ -f "$HARDWARE_CONF" ]]; then
+    PREV_CONFIG=$(grep -oP '^HW_CONFIG=\K.*' "$HARDWARE_CONF" 2>/dev/null || echo "")
+    if [[ -n "$PREV_CONFIG" ]]; then
+        log "Previously installed: Option ${PREV_CONFIG}"
+    fi
+fi
+
+if [[ "$HW_PRESELECTED" != true ]]; then
+    while true; do
+        read -r -p "[BUGSI] Select camera config (A/B) [A]: " HW_CHOICE < /dev/tty
+        HW_CHOICE="${HW_CHOICE:-A}"
+        case "${HW_CHOICE^^}" in
+            A) HW_CONFIG="A"; break ;;
+            B) HW_CONFIG="B"; break ;;
+            *) warn "Invalid choice '$HW_CHOICE' — enter A or B" ;;
+        esac
+    done
+fi
+
+log "Selected hardware configuration: Option $HW_CONFIG"
+echo
+
+# Persist the choice
+mkdir -p "$(dirname "$HARDWARE_CONF")"
+cat > "$HARDWARE_CONF" <<HWEOF
+# BUGSI Hardware Configuration — written by install_hardware.sh
+# Do not edit manually.
+HW_CONFIG=$HW_CONFIG
+INSTALL_DATE=$(date -Iseconds)
+HWEOF
+
 # --- Protect apt cache from SD card corruption ------------------------------
 # Route apt downloads through tmpfs (RAM) so corrupted .deb files on the
 # SD card can never break future installs.  Also clean any existing corrupt
@@ -152,9 +234,10 @@ ORIGINAL_DEFAULT_TARGET=$(systemctl get-default 2>/dev/null || echo "")
 log "Current systemd default target: ${ORIGINAL_DEFAULT_TARGET:-unknown}"
 
 # =============================================================================
-# 1. Prophesee GenX320 Event Camera (cam0)
+# Camera Installation (dispatched by HW_CONFIG)
 # =============================================================================
 
+install_prophesee_genx320() {
 log "--- [1/6] Prophesee GenX320 Event Camera ---"
 
 # DKMS kernel drivers
@@ -264,11 +347,9 @@ fi
 
 sync_barrier "Prophesee GenX320"
 echo
+}
 
-# =============================================================================
-# 2. ArduCam 64MP Hawkeye (cam1)
-# =============================================================================
-
+install_arducam_64mp() {
 log "--- [2/6] ArduCam 64MP Hawkeye ---"
 
 ARDUCAM_IPA="/usr/share/libcamera/ipa/rpi/pisp/arducam_64mp.json"
@@ -305,6 +386,241 @@ fi
 
 sync_barrier "ArduCam 64MP"
 echo
+}
+
+# =============================================================================
+# IDS USB Event Camera (OpenEB + uEye EVS Plugin)
+# =============================================================================
+
+install_ids_event_camera() {
+log "--- [1/6] IDS USB Event Camera (OpenEB + uEye EVS Plugin) ---"
+
+local OPENEB_SRC_DIR="${PROPHESEE_DIR}/openeb"
+local OPENEB_BUILD_DIR="${OPENEB_SRC_DIR}/build"
+local PATCH_DIR="${SCRIPT_DIR}/external/event-camera-driver"
+
+# Check if already built
+if [[ -f "${OPENEB_BUILD_DIR}/lib/libueye_evs_hal_plugin.so" ]]; then
+    log "IDS uEye EVS plugin already built — skipping"
+else
+    # --- Dependencies ---
+    log "Installing IDS event camera dependencies..."
+    apt-get update -qq
+    apt-get $APT_OPTS install -y apt-utils build-essential wget unzip curl git cmake
+    apt-get $APT_OPTS install -y \
+        libopencv-dev libboost-all-dev libusb-1.0-0-dev libprotobuf-dev protobuf-compiler
+    apt-get $APT_OPTS install -y \
+        libhdf5-dev hdf5-tools libglew-dev libglfw3-dev ffmpeg
+    apt-get $APT_OPTS install -y \
+        libboost-program-options-dev libboost-filesystem-dev \
+        libboost-system-dev libboost-thread-dev libboost-timer-dev \
+        libgles2-mesa-dev pybind11-dev
+    apt-get $APT_OPTS install -y python3.13-venv python3.13-dev
+
+    # --- Clone OpenEB 5.1.0 (skip if already present) ---
+    if [[ ! -d "${OPENEB_SRC_DIR}/.git" ]]; then
+        log "Cloning OpenEB 5.1.0..."
+        mkdir -p "$PROPHESEE_DIR"
+        git clone https://github.com/prophesee-ai/openeb.git \
+            --branch 5.1.0 --single-branch "$OPENEB_SRC_DIR"
+    else
+        log "OpenEB source already present at $OPENEB_SRC_DIR — skipping clone"
+    fi
+
+    # --- Reuse bugsi venv for pip installs ---
+    ensure_venv
+    export PYTHONNOUSERSITE=true
+    log "Installing OpenEB Python dependencies into venv at $VENV_DIR... (this may take a while)"
+    "$VENV_DIR/bin/pip" install pip --upgrade
+    # Only install Python packages needed for the HAL plugin build and
+    # basic event camera operation. Skip the full OpenEB requirements —
+    # they pull in heavy ML/science packages (torch, scikit-image, scipy,
+    # numba, etc.) that are slow to build on ARM and unnecessary here.
+    "$VENV_DIR/bin/pip" install --quiet \
+        numpy opencv-python-headless pybind11 pytest h5py
+
+    # --- pybind11 v2.11.0 ---
+    if ! python3 -c "import pybind11" 2>/dev/null; then
+        log "Building pybind11 v2.11.0..."
+        wget -qO /tmp/v2.11.0.zip \
+            https://github.com/pybind/pybind11/archive/v2.11.0.zip
+        unzip -qo /tmp/v2.11.0.zip -d /tmp
+        mkdir -p /tmp/pybind11-2.11.0/build && cd /tmp/pybind11-2.11.0/build
+        cmake .. -DPYBIND11_TEST=OFF
+        cmake --build . -j"$(nproc)"
+        cmake --build . --target install
+    fi
+
+    # --- OpenEB udev rules ---
+    log "Installing OpenEB udev rules..."
+    if ls "${OPENEB_SRC_DIR}/hal_psee_plugins/resources/rules/"*.rules 1>/dev/null 2>&1; then
+        cp "${OPENEB_SRC_DIR}/hal_psee_plugins/resources/rules/"*.rules /etc/udev/rules.d/
+        udevadm control --reload-rules
+        udevadm trigger
+    fi
+
+    # --- Apply IDS patch ---
+    log "Applying IDS uEye EVS patch..."
+    cd "$OPENEB_SRC_DIR"
+    if ! git diff --quiet 2>/dev/null; then
+        log "OpenEB tree already has modifications — skipping patch"
+    else
+        cp "${PATCH_DIR}/ueye_evs_plugin_openeb_5.0.0.patch" .
+        if ! git apply ueye_evs_plugin_openeb_5.0.0.patch; then
+            warn "Patch failed with strict mode, trying --ignore-space-change..."
+            if ! git apply --ignore-space-change ueye_evs_plugin_openeb_5.0.0.patch; then
+                err "IDS patch failed to apply to OpenEB 5.1.0"
+                err "Check ${PATCH_DIR}/ueye_evs_plugin_openeb_5.0.0_README.md"
+                exit 1
+            fi
+        fi
+        log "IDS patch applied successfully"
+    fi
+
+    # --- Build ---
+    log "Building OpenEB + uEye EVS plugin..."
+    mkdir -p "$OPENEB_BUILD_DIR" && cd "$OPENEB_BUILD_DIR"
+    cmake .. -DCMAKE_BUILD_TYPE=Release
+    # Build the full SDK (Python bindings need metavision_core etc.)
+    # then build the IDS HAL plugin specifically
+    cmake --build . -j"$(nproc)"
+    cmake --build . --target ueye_evs_hal_plugin -j"$(nproc)"
+    make install
+    ldconfig
+    log "OpenEB + uEye EVS plugin built and installed successfully"
+fi
+
+# --- Environment variables ---
+if [[ ! -f /etc/profile.d/ids-event-camera.sh ]]; then
+    log "Creating /etc/profile.d/ids-event-camera.sh..."
+    cat > /etc/profile.d/ids-event-camera.sh <<ENVEOF
+# IDS uEye EVS Event Camera — set by install_hardware.sh
+export LD_LIBRARY_PATH="${PROPHESEE_DIR}/openeb/build/lib:\${LD_LIBRARY_PATH:-}"
+export HDF5_PLUGIN_PATH="${PROPHESEE_DIR}/openeb/build/lib/hdf5/plugin:\${HDF5_PLUGIN_PATH:-}"
+export MV_HAL_PLUGIN_PATH="${PROPHESEE_DIR}/openeb/build/lib"
+export PYTHONPATH="${PROPHESEE_DIR}/openeb/build/py3:\${PYTHONPATH:-}"
+ENVEOF
+    chmod 644 /etc/profile.d/ids-event-camera.sh
+fi
+
+# Source for this script session
+export LD_LIBRARY_PATH="${PROPHESEE_DIR}/openeb/build/lib:${LD_LIBRARY_PATH:-}"
+export HDF5_PLUGIN_PATH="${PROPHESEE_DIR}/openeb/build/lib/hdf5/plugin:${HDF5_PLUGIN_PATH:-}"
+export MV_HAL_PLUGIN_PATH="${PROPHESEE_DIR}/openeb/build/lib"
+export PYTHONPATH="${PROPHESEE_DIR}/openeb/build/py3:${PYTHONPATH:-}"
+
+# --- ueye-evs-users group + udev rules ---
+if ! getent group ueye-evs-users >/dev/null 2>&1; then
+    log "Creating ueye-evs-users group..."
+    addgroup --system ueye-evs-users
+fi
+usermod -aG ueye-evs-users "${SUDO_USER:-$(logname)}" 2>/dev/null || true
+if id bugsi &>/dev/null; then
+    usermod -aG ueye-evs-users bugsi 2>/dev/null || true
+fi
+
+if [[ -f "${PATCH_DIR}/ueye_evs_plugin_openeb_5.0.0_udev.rules" ]]; then
+    cp "${PATCH_DIR}/ueye_evs_plugin_openeb_5.0.0_udev.rules" /etc/udev/rules.d/99-ueye_evs.rules
+    udevadm control --reload-rules
+    udevadm trigger
+    log "Installed IDS uEye EVS udev rules"
+fi
+
+# --- Disable unused plugins ---
+local PLUGIN_DIR="${PROPHESEE_DIR}/openeb/build/lib"
+mkdir -p "${PLUGIN_DIR}/disabled"
+for unused in libhal_evk4_sample_plugin.so libhal_toy_sample_plugin.so; do
+    if [[ -f "${PLUGIN_DIR}/${unused}" ]]; then
+        mv "${PLUGIN_DIR}/${unused}" "${PLUGIN_DIR}/disabled/"
+        log "Disabled unused plugin: $unused"
+    fi
+done
+
+sync_barrier "IDS USB Event Camera"
+echo
+}
+
+# =============================================================================
+# IDS RGB Camera (IDS Peak)
+# =============================================================================
+
+install_ids_rgb_camera() {
+log "--- [2/6] IDS RGB Camera (IDS Peak) ---"
+
+local TARBALL_NAME="ids-peak_2.20.0.0-408_arm64.tgz"
+local TARBALL="${DOWNLOAD_CACHE}/${TARBALL_NAME}"
+local TARBALL_LOCAL="${SCRIPT_DIR}/external/rgb-camera/${TARBALL_NAME}"
+
+# Skip if already installed (saves bandwidth on OTA re-runs)
+if [[ -d "$IDS_PEAK_DIR" ]]; then
+    log "IDS Peak already installed at $IDS_PEAK_DIR — skipping"
+else
+    # Locate tarball: persistent cache > bundled copy > download from backend
+    mkdir -p "$DOWNLOAD_CACHE"
+    if [[ -f "$TARBALL" ]]; then
+        log "Using cached tarball at $TARBALL"
+    elif [[ -f "$TARBALL_LOCAL" ]]; then
+        log "Copying bundled tarball to cache..."
+        cp "$TARBALL_LOCAL" "$TARBALL"
+    else
+        log "Tarball not found locally — downloading from backend..."
+        download_heavy_file "$TARBALL_NAME" "$TARBALL"
+    fi
+
+    log "Extracting IDS Peak driver..."
+    mkdir -p "$IDS_PEAK_DIR"
+    tar xzf "$TARBALL" -C "$IDS_PEAK_DIR" --strip-components=1
+    log "IDS Peak extracted to $IDS_PEAK_DIR"
+fi
+
+# Install Python bindings (order matters: ids_peak_common first)
+ensure_venv
+log "Installing IDS Peak Python bindings..."
+TMPDIR="/tmp" "$VENV_DIR/bin/pip" install --no-cache-dir --quiet \
+    ids_peak_common ids_peak_ipl ids_peak ids_peak_afl ids_peak_icv
+
+# --- Environment variables ---
+if [[ ! -f /etc/profile.d/ids-rgb-camera.sh ]]; then
+    log "Creating /etc/profile.d/ids-rgb-camera.sh..."
+    cat > /etc/profile.d/ids-rgb-camera.sh <<ENVEOF
+# IDS RGB Camera (IDS Peak) — set by install_hardware.sh
+export GENICAM_GENTL64_PATH="${IDS_PEAK_DIR}/lib/aarch64-linux-gnu/ids-peak/cti:\${GENICAM_GENTL64_PATH:-}"
+export LD_LIBRARY_PATH="${IDS_PEAK_DIR}/lib/aarch64-linux-gnu/ids-peak/lib:\${LD_LIBRARY_PATH:-}"
+ENVEOF
+    chmod 644 /etc/profile.d/ids-rgb-camera.sh
+fi
+
+# Source for this script session
+export GENICAM_GENTL64_PATH="${IDS_PEAK_DIR}/lib/aarch64-linux-gnu/ids-peak/cti:${GENICAM_GENTL64_PATH:-}"
+export LD_LIBRARY_PATH="${IDS_PEAK_DIR}/lib/aarch64-linux-gnu/ids-peak/lib:${LD_LIBRARY_PATH:-}"
+
+# --- udev rules for USB camera access without root ---
+local IDS_UDEV_SRC="${IDS_PEAK_DIR}/lib/udev/rules.d/99-ids-usb-access.rules"
+if [[ -f "$IDS_UDEV_SRC" ]] && [[ ! -f /etc/udev/rules.d/99-ids-usb-access.rules ]]; then
+    log "Installing IDS USB camera udev rules..."
+    cp "$IDS_UDEV_SRC" /etc/udev/rules.d/99-ids-usb-access.rules
+    udevadm control --reload-rules
+    udevadm trigger
+    log "Installed IDS USB udev rules — reattach camera for them to take effect"
+fi
+
+log "IDS RGB Camera — no dtoverlay needed (USB device)"
+
+sync_barrier "IDS RGB Camera"
+echo
+}
+
+# --- Camera dispatch ---------------------------------------------------------
+case "$HW_CONFIG" in
+    A)
+        install_ids_event_camera
+        install_ids_rgb_camera
+        ;;
+    B)
+        install_prophesee_genx320
+        install_arducam_64mp
+        ;;
+esac
 
 # =============================================================================
 # 3. Witty Pi 5 (Power Management + RTC)
@@ -692,12 +1008,19 @@ if [[ -n "$ORIGINAL_DEFAULT_TARGET" ]]; then
     fi
 fi
 
-log "=== Hardware installation complete ==="
+log "=== Hardware installation complete (Option $HW_CONFIG) ==="
 echo
 log "config.txt entries:"
-grep -E "^(dtoverlay=genx320|dtoverlay=arducam-64mp|dtparam=i2c_arm)" "$CONFIG_TXT" | while read -r line; do
-    echo "  $line"
-done
+if [[ "$HW_CONFIG" == "B" ]]; then
+    grep -E "^(dtoverlay=genx320|dtoverlay=arducam-64mp|dtparam=i2c_arm)" "$CONFIG_TXT" 2>/dev/null | while read -r line; do
+        echo "  $line"
+    done
+else
+    grep -E "^(dtparam=i2c_arm)" "$CONFIG_TXT" 2>/dev/null | while read -r line; do
+        echo "  $line"
+    done
+    echo "  (IDS cameras are USB — no dtoverlay entries)"
+fi
 echo
 log "Services enabled:"
 for svc in bugsi-network-priority; do
@@ -705,12 +1028,40 @@ for svc in bugsi-network-priority; do
     echo "  $svc: $status"
 done
 echo
-warn "A REBOOT is required for dtoverlays and kernel modules to take effect."
+if [[ "$HW_CONFIG" == "A" ]]; then
+    echo
+    warn "=== IMPORTANT: Reattach cameras ==="
+    warn "Both IDS cameras must be physically disconnected and reconnected"
+    warn "for the new udev rules and driver to take effect."
+    echo
+    log "Steps:"
+    echo "  1. Unplug both USB cameras"
+    echo "  2. Wait 3 seconds"
+    echo "  3. Plug them back in"
+    echo
+    log "Then test the cameras with:"
+    echo "  source /etc/profile.d/ids-event-camera.sh"
+    echo "  source /etc/profile.d/ids-rgb-camera.sh"
+    echo "  $VENV_DIR/bin/python ${SCRIPT_DIR}/test_ids_event_camera.py"
+    echo "  $VENV_DIR/bin/python ${SCRIPT_DIR}/test_ids_rgb_camera.py"
+    echo
+    log "Test images will be saved to:"
+    echo "  /tmp/bugsi_event_camera_test.png"
+    echo "  /tmp/bugsi_rgb_camera_test.png"
+fi
+echo
+warn "A REBOOT is required for kernel modules to take effect."
 echo "  sudo reboot"
 echo
 log "After reboot, verify with:"
-echo "  dkms status                    # Prophesee drivers"
-echo "  rpicam-still --list-cameras    # ArduCam 64MP"
+if [[ "$HW_CONFIG" == "A" ]]; then
+    echo "  lsusb | grep 1409             # IDS event camera"
+    echo "  metavision_viewer              # IDS event camera test"
+    echo "  python3 -c 'import ids_peak'  # IDS RGB camera bindings"
+else
+    echo "  dkms status                    # Prophesee drivers"
+    echo "  rpicam-still --list-cameras    # ArduCam 64MP"
+fi
 echo "  wp5                            # Witty Pi 5"
 echo "  ls /dev/serial/by-id/*Zigbee*   # Zigbee coordinator"
 echo "  ls /var/cache/bugsi/           # zigpy database"

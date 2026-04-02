@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 
 from aiohttp import web
 
 from bugsi_daemon.config import ConfigManager
-from bugsi_daemon.web.routes_api import create_api_routes
+from bugsi_daemon.web.routes_api import create_api_routes, install_web_log_handler
 from bugsi_daemon.web.routes_camera import create_camera_routes
 
 logger = logging.getLogger(__name__)
@@ -29,13 +30,18 @@ class WebServer:
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
         self._running = False
+        self._shutting_down = asyncio.Event()
 
     @property
     def is_running(self) -> bool:
         return self._running
 
     def _create_app(self) -> web.Application:
+        install_web_log_handler()
         app = web.Application(middlewares=[self._activity_middleware])
+
+        # Make shutdown event available to route handlers
+        self._components["_shutdown_event"] = self._shutting_down
 
         # API routes
         api_routes = create_api_routes(self._config, self._components)
@@ -72,6 +78,10 @@ class WebServer:
 
     async def stop(self) -> None:
         """Stop the web server."""
+        # Signal streaming handlers to exit before tearing down the server
+        self._shutting_down.set()
+        await asyncio.sleep(0.2)  # give streams a moment to finish
+
         if self._runner:
             await self._runner.cleanup()
             self._runner = None

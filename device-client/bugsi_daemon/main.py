@@ -113,6 +113,11 @@ async def run_daemon(config: ConfigManager, mock: bool) -> None:
         web_server=components.get("web_server"),
     )
 
+    # Inject scheduler into web server components so routes can trigger restart
+    web_server = components.get("web_server")
+    if web_server is not None:
+        web_server._components["scheduler"] = scheduler
+
     loop = asyncio.get_event_loop()
 
     def handle_signal():

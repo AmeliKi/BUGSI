@@ -104,6 +104,16 @@ class Scheduler:
         await self.stop()
         await self._power.prepare_shutdown()
 
+    async def request_restart(self) -> None:
+        """Request daemon restart (e.g. after config change).
+
+        Unlike shutdown(), this does NOT call prepare_shutdown() so the
+        system stays powered on.  systemd ``Restart=always`` will bring
+        the daemon back up with the new configuration.
+        """
+        logger.info("Daemon restart requested")
+        await self.stop()
+
     async def _telemetry_loop(self) -> None:
         """Collect telemetry every N minutes."""
         while self._running:

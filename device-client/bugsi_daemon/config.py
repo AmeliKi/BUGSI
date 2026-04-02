@@ -10,6 +10,27 @@ logger = logging.getLogger(__name__)
 _DEFAULT_CONFIG_PATH = Path(__file__).parent.parent / "config" / "default.json"
 _CREDENTIALS_PATH = "/mnt/usb/bugsi/credentials.json"
 _LOCAL_CONFIG_PATH = "/mnt/usb/bugsi/config.json"
+_HARDWARE_CONF_PATH = "/etc/bugsi/hardware.conf"
+
+# Camera types per hardware configuration (set by install_hardware.sh)
+_HW_CAMERA_OVERRIDES = {
+    "A": {
+        "still_camera": {
+            "type": "ids_rgb",
+            "exposure_us": 0,
+            "gain_db": 0.0,
+            "white_balance": "off",
+            "balance_ratio_red": 1.2,
+            "balance_ratio_green": 1.0,
+            "balance_ratio_blue": 1.5,
+        },
+        "event_camera": {"type": "ids_evs"},
+    },
+    "B": {
+        "still_camera": {"type": "arducam_64mp", "resolution_width": 3840, "resolution_height": 2160},
+        "event_camera": {"type": "prophesee_genx320"},
+    },
+}
 
 
 class ConfigManager:
@@ -57,12 +78,15 @@ class ConfigManager:
         self._warn_api_url()
 
     def load(self) -> None:
-        """Load configuration: defaults -> local fallback -> env overrides."""
+        """Load configuration: defaults -> hardware overrides -> local fallback -> env overrides."""
         # Load defaults
         if self._default_config_path.exists():
             with open(self._default_config_path) as f:
                 self._config = json.load(f)
             logger.info("Loaded default config from %s", self._default_config_path)
+
+        # Apply hardware-specific camera types from /etc/bugsi/hardware.conf
+        self._apply_hardware_overrides()
 
         # Override with local config if it exists
         if self._local_config_path.exists():
@@ -74,6 +98,36 @@ class ConfigManager:
 
         # Load credentials
         self._load_credentials()
+
+    def _apply_hardware_overrides(self) -> None:
+        """Read /etc/bugsi/hardware.conf and apply camera type overrides."""
+        hw_conf = Path(_HARDWARE_CONF_PATH)
+        if not hw_conf.exists():
+            logger.debug("No hardware config at %s, using defaults", _HARDWARE_CONF_PATH)
+            return
+
+        hw_config = ""
+        try:
+            for line in hw_conf.read_text().splitlines():
+                line = line.strip()
+                if line.startswith("HW_CONFIG="):
+                    hw_config = line.split("=", 1)[1].strip()
+                    break
+        except OSError:
+            logger.warning("Could not read %s", _HARDWARE_CONF_PATH)
+            return
+
+        if hw_config in _HW_CAMERA_OVERRIDES:
+            overrides = _HW_CAMERA_OVERRIDES[hw_config]
+            self._config = _deep_merge(self._config, overrides)
+            logger.info(
+                "Applied hardware config Option %s: still_camera=%s, event_camera=%s",
+                hw_config,
+                overrides["still_camera"]["type"],
+                overrides["event_camera"]["type"],
+            )
+        elif hw_config:
+            logger.warning("Unknown HW_CONFIG=%s in %s", hw_config, _HARDWARE_CONF_PATH)
 
     def _load_credentials(self) -> None:
         """Load API key and URL from credentials file or env vars."""
@@ -112,6 +166,31 @@ class ConfigManager:
                 "create %s with an 'api_url' field.", self._credentials_path,
             )
 
+        self._warn_api_url()
+
+    def save_credentials(self, api_key: str | None = None, api_url: str | None = None) -> None:
+        """Update credentials in memory and persist to credentials file."""
+        if api_key is not None:
+            self._api_key = api_key
+        if api_url is not None:
+            self._api_url = api_url
+
+        # Read existing file to preserve fields not being changed
+        creds: dict = {}
+        if self._credentials_path.exists():
+            try:
+                with open(self._credentials_path) as f:
+                    creds = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        creds["api_key"] = self._api_key
+        creds["api_url"] = self._api_url
+
+        self._credentials_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(self._credentials_path, "w") as f:
+            json.dump(creds, f, indent=2)
+        logger.info("Saved credentials to %s", self._credentials_path)
         self._warn_api_url()
 
     def _warn_api_url(self) -> None:

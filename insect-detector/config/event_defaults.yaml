@@ -1,0 +1,35 @@
+# BUGSI Event Camera Insect Detector -- Prophesee IMX636
+# ======================================================
+# Edit this file to tune camera biases, tracking, and alert parameters.
+# Only listed biases are applied; unlisted ones keep camera defaults.
+
+camera:
+  biases:
+    # IMX636 bias controls (uncomment and adjust as needed):
+    # bias_diff_on: 102      # ON-event contrast threshold (higher = less sensitive)
+    # bias_diff_off: 73      # OFF-event contrast threshold (higher = less sensitive)
+    # bias_fo: 1450          # Source-follower bias (response time)
+    # bias_hpf: 1500         # High-pass filter cutoff (temporal response)
+    # bias_refr: 1500        # Refractory period (min time between events per pixel)
+
+tracking:
+  update_frequency: 200              # Hz -- how often tracking runs
+  accumulation_time_us: 10000        # Rolling buffer width (microseconds)
+  cell_width: 7                      # Grid cell width for cluster maker (px)
+  cell_height: 7                     # Grid cell height for cluster maker (px)
+  activation_threshold: 10           # Events per cell to count as active
+  min_size: 10                       # Min tracked object size (px)
+  max_size: 300                      # Max tracked object size (px)
+  motion_model: simple               # simple / instant / smooth / kalman
+
+noise_filter:
+  activity_time_ths: 10000           # Activity noise filter threshold (us), 0 = disabled
+  trail_ths: 0                       # Trail filter threshold (us), 0 = disabled
+
+alert:
+  enabled: true
+  cooldown_s: 2.0                    # Seconds between console alerts / snapshots
+
+output:
+  snapshot_dir: ./snapshots           # Detection snapshots (PNG + JSON metadata)
+  recording_dir: ./recordings         # Video recordings (AVI)

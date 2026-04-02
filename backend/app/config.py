@@ -5,6 +5,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = "postgresql+asyncpg://bugsi:bugsi_dev@localhost:5432/bugsi"
     SECRET_KEY: str  # Required — no default
     UPLOAD_DIR: str = "/data/uploads"
+    HEAVY_FILES_DIR: str = "/data/heavy-files"
     CORS_ORIGINS: str = "http://localhost:5173,http://localhost:3000"
     ADMIN_EMAIL: str = "admin@bugsi.local"
     ADMIN_PASSWORD: str  # Required — no default

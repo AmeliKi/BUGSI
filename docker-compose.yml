@@ -32,6 +32,7 @@ services:
       DATABASE_URL: postgresql+asyncpg://bugsi:${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set}@postgres:5432/bugsi
       SECRET_KEY: ${SECRET_KEY:?SECRET_KEY must be set}
       UPLOAD_DIR: /data/uploads
+      HEAVY_FILES_DIR: /data/heavy-files
       CORS_ORIGINS: http://localhost:5173,http://localhost:3000
       ADMIN_EMAIL: ${ADMIN_EMAIL:-admin@bugsi.local}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?ADMIN_PASSWORD must be set}
@@ -42,6 +43,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
     volumes:
       - upload_data:/data/uploads
+      - ./data/heavy_files:/data/heavy-files
       - ./backend:/app
       - ./device-client:/device-client:ro
       - ./insect-detector:/insect-detector:ro
@@ -99,3 +101,4 @@ services:
 volumes:
   postgres_data:    # WARNING: 'docker-compose down -v' deletes this volume and all DB data
   upload_data:      # WARNING: 'docker-compose down -v' deletes uploaded files
+  heavy_files:      # Large driver files served to devices (IDS Peak SDK, etc.)

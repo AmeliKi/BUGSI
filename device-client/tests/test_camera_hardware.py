@@ -1,5 +1,6 @@
 """Tests for camera hardware abstraction (MockCamera + WebCamera integration)."""
 from __future__ import annotations
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
@@ -96,3 +97,53 @@ class TestWebCameraWithMock:
         await web_cam.capture_jpeg()
         assert camera.is_open()
         web_cam.close()
+
+    async def test_closes_camera_on_capture_failure(self):
+        """After a capture failure, the camera is closed so next call re-opens."""
+        mock_cam = MagicMock()
+        mock_cam.is_open.return_value = True
+        mock_cam.capture.side_effect = RuntimeError("USB disconnected")
+
+        web_cam = WebCamera(mock_cam, jpeg_quality=85)
+        with pytest.raises(RuntimeError, match="USB disconnected"):
+            await web_cam.capture_jpeg()
+
+        mock_cam.close.assert_called_once()
+
+    async def test_recovers_after_capture_failure(self):
+        """After a failure closes the camera, the next capture re-opens and succeeds."""
+        mock_cam = MagicMock()
+        call_count = 0
+
+        def capture_side_effect():
+            nonlocal call_count
+            call_count += 1
+            if call_count == 1:
+                raise RuntimeError("USB disconnected")
+            return np.zeros((120, 160, 3), dtype=np.uint8)
+
+        def is_open_side_effect():
+            # After close() was called, report not open
+            if mock_cam.close.called and call_count <= 1:
+                return False
+            return call_count > 1 or not mock_cam.close.called
+
+        mock_cam.capture.side_effect = capture_side_effect
+        mock_cam.is_open.side_effect = is_open_side_effect
+
+        web_cam = WebCamera(mock_cam, jpeg_quality=85)
+
+        # First call fails
+        with pytest.raises(RuntimeError):
+            await web_cam.capture_jpeg()
+
+        # Reset is_open to return False (camera was closed)
+        mock_cam.is_open.side_effect = None
+        mock_cam.is_open.return_value = False
+
+        # Second call should re-open and succeed
+        mock_cam.capture.side_effect = lambda: np.zeros((120, 160, 3), dtype=np.uint8)
+        data = await web_cam.capture_jpeg()
+        assert isinstance(data, bytes)
+        # open() should have been called for the re-open
+        mock_cam.open.assert_called()
