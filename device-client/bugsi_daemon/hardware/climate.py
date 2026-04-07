@@ -64,9 +64,11 @@ class _SerializableBytes:
 class _ClimateClusterListener:
     """Receives ZCL attribute reports and updates the sensor's last_reading."""
 
-    def __init__(self, sensor: ZigbeeClimateSensor, cluster_id: int) -> None:
+    def __init__(self, sensor: ZigbeeClimateSensor, cluster_id: int, device=None) -> None:
         self._sensor = sensor
         self._cluster_id = cluster_id
+        self._device = device
+        self._reporting_configured = False
 
     def attribute_updated(self, attrid: int, value, timestamp=None) -> None:
         """Called by zigpy when a ZCL attribute report arrives."""
@@ -83,8 +85,34 @@ class _ClimateClusterListener:
             logger.debug("ZCL attribute update: cluster=0x%04x attr=0x%04x value=%s",
                          self._cluster_id, attrid, value)
             self._sensor._data_event.set()
+            self._notify("data_received", cluster_id=self._cluster_id, attrid=attrid)
         except (TypeError, ValueError):
             logger.debug("Ignoring invalid ZCL attribute value: %s", value)
+
+        # Device is awake — opportunistically read and configure reporting
+        if self._device is not None:
+            reading = self._sensor._last_reading
+            if "temperature" not in reading or "humidity" not in reading:
+                asyncio.ensure_future(self._sensor._read_target_attributes(self._device))
+            if not self._reporting_configured:
+                asyncio.ensure_future(self._try_configure_reporting())
+
+    async def _try_configure_reporting(self) -> None:
+        """Try to configure reporting on the device while it's awake."""
+        try:
+            await self._sensor._configure_reporting(self._device)
+            self._reporting_configured = True
+            logger.info("Opportunistic reporting configuration succeeded")
+            self._notify("reporting_configured")
+        except Exception:
+            logger.debug("Opportunistic reporting configuration failed", exc_info=True)
+
+    def _notify(self, event: str, **kwargs) -> None:
+        for cb in self._sensor._status_callbacks:
+            try:
+                cb(event, **kwargs)
+            except Exception:
+                pass
 
     def cluster_command(self, tsn, command_id, args):
         pass
@@ -284,13 +312,18 @@ class _DeviceJoinListener:
 
     def __init__(self) -> None:
         self.joined: list[dict] = []
+        self._seen_ieee: set[str] = set()
         self._callbacks: list = []
         self._event = asyncio.Event()
 
     def device_joined(self, device) -> None:
+        ieee_str = str(device.ieee)
+        if ieee_str in self._seen_ieee:
+            return
+        self._seen_ieee.add(ieee_str)
         data = {
-            "friendly_name": str(device.ieee),
-            "ieee_address": str(device.ieee),
+            "friendly_name": ieee_str,
+            "ieee_address": ieee_str,
             "model": getattr(device, "model", "?") or "?",
             "vendor": getattr(device, "manufacturer", "?") or "?",
         }
@@ -362,6 +395,20 @@ class _AppDeviceListener:
                     except Exception:
                         logger.debug("Could not read cluster 0x%04x on %s",
                                      cluster_id, device.ieee, exc_info=True)
+            # Tuya TS0601: send DP query instead of standard ZCL reads
+            if _CLUSTER_TUYA in endpoint.in_clusters:
+                tuya_cluster = endpoint.in_clusters[_CLUSTER_TUYA]
+                try:
+                    seq = 1
+                    payload = seq.to_bytes(2, "big")
+                    await tuya_cluster.request(
+                        False, 0x03, _SerializableBytes, payload,
+                        expect_reply=False,
+                    )
+                    logger.info("Tuya DP query sent to %s", device.ieee)
+                except Exception:
+                    logger.debug("Could not send Tuya DP query to %s",
+                                 device.ieee, exc_info=True)
 
     @classmethod
     def _has_climate_clusters(cls, device) -> bool:
@@ -400,6 +447,7 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
         self._data_event = asyncio.Event()
         self._app = None  # zigpy ControllerApplication
         self._device_listener: _AppDeviceListener | None = None
+        self._status_callbacks: list = []
 
     async def initialize(self) -> None:
         try:
@@ -489,6 +537,26 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
             self._device_listener = _AppDeviceListener(self)
             self._app.add_listener(self._device_listener)
 
+            # Wrap handle_join so that re-joining (same NWK) devices also
+            # trigger device_joined on our listener.  Zigpy only fires the
+            # event for truly new devices; we need it for sleepy devices
+            # that rejoin when woken up (e.g. button press).
+            original_handle_join = self._app.handle_join
+
+            def _handle_join_with_rejoin(nwk, ieee, parent_nwk, *, handle_rejoin=True):
+                from zigpy.types import EUI64
+                ieee_obj = EUI64(ieee)
+                was_known = ieee_obj in self._app.devices
+                original_handle_join(nwk, ieee, parent_nwk, handle_rejoin=handle_rejoin)
+                if was_known and self._device_listener is not None:
+                    try:
+                        dev = self._app.get_device(ieee=ieee_obj)
+                        self._device_listener.device_joined(dev)
+                    except KeyError:
+                        pass
+
+            self._app.handle_join = _handle_join_with_rejoin
+
         # Install listeners on target device if already paired
         self._install_listeners_on_target()
 
@@ -554,6 +622,32 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
             })
         return devices
 
+    def get_diagnostics(self) -> dict:
+        """Return diagnostic info about the target device and listener state."""
+        info = {
+            "device_name": self._device_name,
+            "name_map": self._load_name_map(),
+            "target_device": None,
+            "endpoints": {},
+        }
+        dev = self._find_target_device()
+        if dev is not None:
+            info["target_device"] = {
+                "ieee": str(dev.ieee),
+                "nwk": f"0x{dev.nwk:04x}",
+                "model": getattr(dev, "model", "?"),
+                "manufacturer": getattr(dev, "manufacturer", "?"),
+                "is_initialized": getattr(dev, "is_initialized", "?"),
+            }
+            for ep_id, endpoint in dev.endpoints.items():
+                if ep_id == 0:
+                    continue
+                if hasattr(endpoint, "in_clusters"):
+                    info["endpoints"][ep_id] = {
+                        "in_clusters": [f"0x{c:04x}" for c in endpoint.in_clusters],
+                    }
+        return info
+
     async def pair_zigbee(
         self,
         timeout: int = 120,
@@ -566,12 +660,27 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
         if on_device_joined:
             join_listener._callbacks.append(on_device_joined)
 
-        self._app.listener_event = lambda name, *args: (
-            getattr(join_listener, name, lambda *a: None)(*args)
-        )
-        original_listener = None
+        # Wrap handle_join so re-joining (already-known) devices also fire
+        # device_joined.  Zigpy only fires the event for truly *new* devices;
+        # during a pairing window we want to see ALL joins.
+        original_handle_join = self._app.handle_join
+
+        def _handle_join_for_pairing(nwk, ieee, parent_nwk, *, handle_rejoin=True):
+            from zigpy.types import EUI64
+            ieee_obj = EUI64(ieee)
+            was_known = ieee_obj in self._app.devices
+            original_handle_join(nwk, ieee, parent_nwk, handle_rejoin=handle_rejoin)
+            if was_known:
+                try:
+                    dev = self._app.get_device(ieee=ieee_obj)
+                    join_listener.device_joined(dev)
+                except KeyError:
+                    pass
+
+        self._app.handle_join = _handle_join_for_pairing
+
         try:
-            # Register listener for device_joined events
+            # Register listener for device_joined events (new devices)
             self._app.add_listener(join_listener)
 
             await self._app.permit(time_s=timeout)
@@ -579,26 +688,39 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
 
             try:
                 async with asyncio.timeout(timeout):
-                    while True:
-                        join_listener._event.clear()
-                        await join_listener._event.wait()
-                        # Check if the device has completed its interview
-                        for j in join_listener.joined:
-                            ieee_str = j["ieee_address"]
-                            for ieee, dev in self._app.devices.items():
-                                if str(ieee) == ieee_str and dev.endpoints:
-                                    # Save name mapping
-                                    name_map = self._load_name_map()
-                                    name_map[ieee_str] = ieee_str  # default to IEEE
-                                    self._save_name_map(name_map)
-                                    # Install listeners
-                                    self._install_listeners_for_device(dev)
-                                    # Try to configure reporting
-                                    try:
-                                        await self._configure_reporting(dev)
-                                    except Exception:
-                                        logger.debug("Could not configure reporting", exc_info=True)
+                    join_listener._event.clear()
+                    await join_listener._event.wait()
+                    # A device joined — wait for zigpy to finish initializing it
+                    for j in join_listener.joined:
+                        ieee_str = j["ieee_address"]
+                        for ieee, dev in self._app.devices.items():
+                            if str(ieee) != ieee_str:
+                                continue
+                            # Wait for zigpy to complete endpoint/cluster discovery
+                            init_deadline = 30  # seconds
+                            for _ in range(init_deadline * 5):
+                                if getattr(dev, "is_initialized", False):
                                     break
+                                await asyncio.sleep(0.2)
+                            if not getattr(dev, "is_initialized", False):
+                                logger.warning("Device %s did not finish initializing "
+                                               "within %ds", ieee_str, init_deadline)
+                            else:
+                                logger.info("Device %s initialized: model=%s manuf=%s",
+                                            ieee_str, getattr(dev, "model", "?"),
+                                            getattr(dev, "manufacturer", "?"))
+                                # Update join info with discovered model/manufacturer
+                                j["model"] = getattr(dev, "model", "?")
+                                j["vendor"] = getattr(dev, "manufacturer", "?")
+                            name_map = self._load_name_map()
+                            name_map[ieee_str] = ieee_str
+                            self._save_name_map(name_map)
+                            self._install_listeners_for_device(dev)
+                            try:
+                                await self._configure_reporting(dev)
+                            except Exception:
+                                logger.debug("Could not configure reporting", exc_info=True)
+                            break
             except asyncio.TimeoutError:
                 pass
 
@@ -609,6 +731,10 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
             except Exception:
                 logger.debug("Could not disable permit join", exc_info=True)
         finally:
+            try:
+                del self._app.handle_join
+            except AttributeError:
+                pass
             try:
                 self._app.remove_listener(join_listener)
             except (ValueError, AttributeError):
@@ -640,6 +766,50 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
         name_map[target_ieee] = new_name
         self._save_name_map(name_map)
         logger.info("Renamed device %s: '%s' -> '%s'", target_ieee, old_name, new_name)
+        return True
+
+    async def remove_device(self, name_or_ieee: str) -> bool:
+        """Remove a device from the Zigbee network and name map."""
+        if not self._powered or self._app is None:
+            raise RuntimeError("Zigbee stack must be powered on to remove devices")
+
+        from zigpy.types import EUI64
+
+        name_map = self._load_name_map()
+
+        # Resolve to IEEE address
+        target_ieee = None
+        for ieee, name in name_map.items():
+            if name == name_or_ieee or ieee == name_or_ieee:
+                target_ieee = ieee
+                break
+        if target_ieee is None:
+            # Try direct IEEE match in zigpy devices
+            for ieee in self._app.devices:
+                if str(ieee) == name_or_ieee:
+                    target_ieee = name_or_ieee
+                    break
+
+        if target_ieee is None:
+            logger.warning("Device '%s' not found", name_or_ieee)
+            return False
+
+        # Remove from zigpy (sends leave request to device + removes from DB)
+        try:
+            ieee_obj = EUI64.convert(target_ieee)
+            await self._app.remove(ieee_obj)
+            logger.info("Removed device %s from Zigbee network", target_ieee)
+        except Exception:
+            logger.warning("Could not send leave request to %s (removing locally)",
+                           target_ieee, exc_info=True)
+            # Still remove locally even if the device is unreachable
+            self._app.devices.pop(EUI64.convert(target_ieee), None)
+
+        # Remove from name map
+        if target_ieee in name_map:
+            del name_map[target_ieee]
+            self._save_name_map(name_map)
+
         return True
 
     # --- zigpy controller management ---
@@ -702,10 +872,10 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
 
     # --- ZCL listener management ---
 
-    def _install_listeners_on_target(self) -> None:
-        """Find the target device by name and install cluster listeners."""
+    def _find_target_device(self):
+        """Find the target device by name, falling back to first climate device."""
         if self._app is None:
-            return
+            return None
 
         name_map = self._load_name_map()
         target_ieee = None
@@ -714,21 +884,90 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
                 target_ieee = ieee
                 break
 
-        if target_ieee is None:
-            logger.debug("Target device '%s' not found in name map", self._device_name)
-            return
+        if target_ieee is not None:
+            for ieee, dev in self._app.devices.items():
+                if str(ieee) == target_ieee:
+                    return dev
 
+        # Fallback: pick the first non-coordinator device with climate clusters
         for ieee, dev in self._app.devices.items():
-            if str(ieee) == target_ieee:
-                self._install_listeners_for_device(dev)
-                # Update link quality
-                if hasattr(dev, "lqi") and dev.lqi is not None:
-                    self._last_reading["zigbee_linkquality"] = dev.lqi
-                break
+            if getattr(dev.node_desc, "is_coordinator", False) if dev.node_desc else False:
+                continue
+            if _AppDeviceListener._has_climate_clusters(dev):
+                logger.info("Target '%s' not in name map, falling back to %s",
+                            self._device_name, ieee)
+                return dev
+
+        return None
+
+    def _install_listeners_on_target(self):
+        """Find the target device by name and install cluster listeners."""
+        dev = self._find_target_device()
+        if dev is None:
+            logger.warning("No target device found for '%s'", self._device_name)
+            return None
+
+        logger.info("Installing listeners on %s (%s)", self._device_name, dev.ieee)
+        self._install_listeners_for_device(dev)
+        if hasattr(dev, "lqi") and dev.lqi is not None:
+            self._last_reading["zigbee_linkquality"] = dev.lqi
+        return dev
+
+    async def _read_target_attributes(self, device) -> None:
+        """Actively read temperature/humidity/battery from a device.
+
+        Reads are fired concurrently so one slow/failed cluster doesn't
+        block the others (important for sleepy end devices).
+        """
+        read_targets = [
+            (_CLUSTER_TEMPERATURE, [_ATTR_MEASURED_VALUE]),
+            (_CLUSTER_HUMIDITY, [_ATTR_MEASURED_VALUE]),
+            (_CLUSTER_POWER_CONFIG, [_ATTR_BATTERY_PERCENT, _ATTR_BATTERY_VOLTAGE]),
+        ]
+
+        async def _read_one(cluster, cluster_id, attrs):
+            try:
+                result = await cluster.read_attributes(attrs)
+                logger.debug("Read attributes from cluster 0x%04x: %s",
+                             cluster_id, result)
+            except Exception:
+                logger.debug("Could not read cluster 0x%04x on %s",
+                             cluster_id, device.ieee, exc_info=True)
+
+        tasks = []
+        for ep_id, endpoint in device.endpoints.items():
+            if ep_id == 0 or not hasattr(endpoint, "in_clusters"):
+                continue
+            for cluster_id, attrs in read_targets:
+                if cluster_id in endpoint.in_clusters:
+                    tasks.append(_read_one(endpoint.in_clusters[cluster_id],
+                                           cluster_id, attrs))
+            # Tuya TS0601: send DP query instead of standard ZCL reads
+            if _CLUSTER_TUYA in endpoint.in_clusters:
+                tuya_cluster = endpoint.in_clusters[_CLUSTER_TUYA]
+
+                async def _query_tuya():
+                    try:
+                        payload = (1).to_bytes(2, "big")
+                        await tuya_cluster.request(
+                            False, 0x03, _SerializableBytes, payload,
+                            expect_reply=False,
+                        )
+                        logger.info("Tuya DP query sent to %s", device.ieee)
+                    except Exception:
+                        logger.debug("Could not send Tuya DP query to %s",
+                                     device.ieee, exc_info=True)
+
+                tasks.append(_query_tuya())
+        if tasks:
+            await asyncio.gather(*tasks)
 
     def _install_listeners_for_device(self, device) -> None:
         """Attach ClusterListener instances to a device's relevant clusters."""
         target_clusters = {_CLUSTER_TEMPERATURE, _CLUSTER_HUMIDITY, _CLUSTER_POWER_CONFIG}
+        _cluster_names = {_CLUSTER_TEMPERATURE: "temperature", _CLUSTER_HUMIDITY: "humidity",
+                          _CLUSTER_POWER_CONFIG: "battery"}
+        installed = []
 
         for ep_id, endpoint in device.endpoints.items():
             if ep_id == 0:  # ZDO endpoint
@@ -738,42 +977,67 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
             for cluster_id in target_clusters:
                 if cluster_id in endpoint.in_clusters:
                     cluster = endpoint.in_clusters[cluster_id]
-                    listener = _ClimateClusterListener(self, cluster_id)
+                    listener = _ClimateClusterListener(self, cluster_id, device=device)
                     cluster.add_listener(listener)
-                    logger.debug("Installed listener on endpoint %d cluster 0x%04x",
-                                 ep_id, cluster_id)
+                    installed.append(_cluster_names.get(cluster_id, f"0x{cluster_id:04x}"))
             # Tuya devices use cluster 0xEF00 for all data
             if _CLUSTER_TUYA in endpoint.in_clusters:
                 tuya_cluster = endpoint.in_clusters[_CLUSTER_TUYA]
                 listener = _TuyaClusterListener(self, cluster=tuya_cluster)
                 tuya_cluster.add_listener(listener)
-                logger.info("Installed Tuya listener on endpoint %d cluster 0xEF00", ep_id)
+                # Wrap reply() to suppress CancelledError from sleepy devices
+                # zigpy sends automatic default responses which fail when
+                # the device goes back to sleep before the reply is sent.
+                _original_reply = tuya_cluster.reply
+                async def _quiet_reply(*args, _orig=_original_reply, **kwargs):
+                    try:
+                        return await _orig(*args, **kwargs)
+                    except asyncio.CancelledError:
+                        logger.debug("Tuya cluster reply cancelled (device asleep)")
+                    except Exception:
+                        logger.debug("Tuya cluster reply failed", exc_info=True)
+                tuya_cluster.reply = _quiet_reply
+                installed.append("tuya")
+
+        if installed:
+            logger.info("Installed listeners: %s", ", ".join(installed))
+        else:
+            logger.warning("No climate clusters found on device %s", device.ieee)
 
     async def _configure_reporting(self, device) -> None:
-        """Configure ZCL attribute reporting for temperature, humidity, battery."""
+        """Configure ZCL attribute reporting for temperature, humidity, battery.
+
+        Runs all configure commands concurrently to maximise the chance of
+        reaching a sleepy device before it goes back to sleep.
+        """
+        _cluster_names = {_CLUSTER_TEMPERATURE: "temperature", _CLUSTER_HUMIDITY: "humidity",
+                          _CLUSTER_POWER_CONFIG: "battery"}
         reporting_configs = [
             (_CLUSTER_TEMPERATURE, _ATTR_MEASURED_VALUE, 30, 600, 10),   # 0.1°C change
             (_CLUSTER_HUMIDITY, _ATTR_MEASURED_VALUE, 30, 600, 100),     # 1% change
             (_CLUSTER_POWER_CONFIG, _ATTR_BATTERY_PERCENT, 3600, 43200, 2),  # 1% change
         ]
 
+        async def _configure_one(cluster, cluster_id, attr_id, min_iv, max_iv, change):
+            name = _cluster_names.get(cluster_id, f"0x{cluster_id:04x}")
+            try:
+                await cluster.configure_reporting(attr_id, min_iv, max_iv, change)
+                logger.info("Configured reporting for %s (cluster 0x%04x)", name, cluster_id)
+            except Exception:
+                logger.info("Failed to configure reporting for %s (device may be asleep)",
+                            name)
+
+        tasks = []
         for ep_id, endpoint in device.endpoints.items():
-            if ep_id == 0:
-                continue
-            if not hasattr(endpoint, "in_clusters"):
+            if ep_id == 0 or not hasattr(endpoint, "in_clusters"):
                 continue
             for cluster_id, attr_id, min_interval, max_interval, change in reporting_configs:
                 if cluster_id in endpoint.in_clusters:
-                    cluster = endpoint.in_clusters[cluster_id]
-                    try:
-                        await cluster.configure_reporting(
-                            attr_id, min_interval, max_interval, change
-                        )
-                        logger.debug("Configured reporting: cluster=0x%04x attr=0x%04x",
-                                     cluster_id, attr_id)
-                    except Exception:
-                        logger.debug("Failed to configure reporting for cluster 0x%04x",
-                                     cluster_id, exc_info=True)
+                    tasks.append(_configure_one(
+                        endpoint.in_clusters[cluster_id], cluster_id,
+                        attr_id, min_interval, max_interval, change))
+        if tasks:
+            await asyncio.gather(*tasks)
 
     # --- Serial port auto-detection ---
 

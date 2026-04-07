@@ -880,11 +880,44 @@ async def cmd_test_hardware(config: ConfigManager, mock: bool, subsystem: str | 
                     status = "ONLINE" if available else "OFFLINE"
                     print(f"    [{status}] {name} ({vendor} {model}, {dev_type}, {ieee})")
 
+            # Diagnostics
+            diag = climate.get_diagnostics()
+            print(f"  Name map: {diag['name_map']}")
+            target = diag.get("target_device")
+            if target:
+                print(f"  Target device: {target['ieee']} ({target['manufacturer']} {target['model']}, nwk={target['nwk']})")
+                for ep_id, ep_info in diag.get("endpoints", {}).items():
+                    print(f"    Endpoint {ep_id} clusters: {', '.join(ep_info['in_clusters'])}")
+            else:
+                print(f"  WARNING: Target device '{diag['device_name']}' not found!")
+
+            # Status callback for live feedback
+            _cluster_names = {0x0402: "temperature", 0x0405: "humidity", 0x0001: "battery"}
+
+            def _on_status(event, **kwargs):
+                if event == "data_received":
+                    cluster_id = kwargs.get("cluster_id")
+                    name = _cluster_names.get(cluster_id, f"0x{cluster_id:04x}")
+                    print(f"  <- Received {name} data from sensor")
+                elif event == "reporting_configured":
+                    print("  ** Reporting configured (sensor will now push data automatically)")
+
+            climate._status_callbacks.append(_on_status)
+
+            # Fire active read + configure reporting in the background.
+            # These will be delivered when the sensor wakes up / polls.
+            target_dev = climate._find_target_device()
+            if target_dev is not None:
+                print("  Queuing read request for sensor (will be delivered when it wakes up)...")
+                import asyncio as _asyncio
+                _asyncio.ensure_future(climate._read_target_attributes(target_dev))
+                _asyncio.ensure_future(climate._configure_reporting(target_dev))
+
             # Wait for sensor data (sensor may join/initialize after power-on)
             device_name = config.get("zigbee.device_name", "climate_sensor")
             timeout = 90
             print(f"  Waiting up to {timeout}s for sensor data from '{device_name}'...")
-            print("  (sleepy Zigbee devices may take time to wake up and report)")
+            print("  (TS0201 sensors may take a few minutes to report on their own)")
             if hasattr(climate, "wait_for_reading"):
                 reading = await climate.wait_for_reading(timeout=timeout)
             else:
@@ -897,6 +930,7 @@ async def cmd_test_hardware(config: ConfigManager, mock: bool, subsystem: str | 
                 print(f"  No data received from '{device_name}' (check pairing)")
                 print("  Tip: run 'bugsi pair-zigbee' first to pair the sensor")
 
+            climate._status_callbacks.remove(_on_status)
             await climate.power_off()
             print("  OK")
         except Exception as e:
@@ -988,13 +1022,17 @@ async def cmd_pair_zigbee(
         print()
 
         def on_joined(data: dict) -> None:
-            name = data.get("friendly_name", "unknown")
             ieee = data.get("ieee_address", "?")
-            model = data.get("model", "?")
-            vendor = data.get("vendor", "?")
-            print(f"  [JOINED] {ieee} ({vendor} {model}) as \"{name}\"")
+            print(f"  [JOINED] {ieee} — waiting for device initialization...")
 
         joined = await climate.pair_zigbee(timeout=timeout, on_device_joined=on_joined)
+
+        if joined:
+            for j in joined:
+                ieee = j.get("ieee_address", "?")
+                model = j.get("model", "?")
+                vendor = j.get("vendor", "?")
+                print(f"  [READY]  {ieee} ({vendor} {model})")
         print()
 
         if not joined:
@@ -1034,6 +1072,64 @@ async def cmd_pair_zigbee(
                 status = "ONLINE" if available else "OFFLINE"
                 print(f"  [{status}] {name} ({vendor} {model}, {dev_type})")
             print()
+
+    finally:
+        print("Powering off Zigbee stack...", end=" ")
+        await climate.power_off()
+        print("Done.")
+
+
+async def cmd_remove_zigbee(
+    config: ConfigManager, mock: bool, name_or_ieee: str,
+) -> None:
+    """Remove a paired Zigbee sensor."""
+    hw = await _init_hardware(config, mock)
+    climate = hw["climate"]
+
+    try:
+        print("Powering on Zigbee stack...")
+        try:
+            await climate.power_on()
+        except Exception as exc:
+            print(f"ERROR: Failed to start Zigbee controller: {exc}")
+            return
+
+        print(f"Removing device '{name_or_ieee}'...")
+        success = await climate.remove_device(name_or_ieee)
+        print()
+
+        if success:
+            print(f"Device '{name_or_ieee}' removed.")
+        else:
+            print(f"Device '{name_or_ieee}' not found.")
+            print()
+            # Show available devices to help the user
+            devices = await climate.get_devices()
+            if devices:
+                non_coord = [d for d in devices if d.get("type") != "Coordinator"]
+                if non_coord:
+                    print("Available devices:")
+                    for dev in non_coord:
+                        name = dev.get("friendly_name", "unknown")
+                        ieee = dev.get("ieee_address", "?")
+                        print(f"  {name} ({ieee})")
+            return
+
+        # List remaining devices
+        devices = await climate.get_devices()
+        if devices:
+            remaining = [d for d in devices if d.get("type") != "Coordinator"]
+            if remaining:
+                print()
+                print("Remaining devices:")
+                for dev in remaining:
+                    name = dev.get("friendly_name", "unknown")
+                    model = dev.get("model", "?")
+                    vendor = dev.get("vendor", "?")
+                    print(f"  {name} ({vendor} {model})")
+            else:
+                print("No sensor devices remaining.")
+        print()
 
     finally:
         print("Powering off Zigbee stack...", end=" ")

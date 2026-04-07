@@ -74,6 +74,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Rename the first joined device to this friendly name",
     )
 
+    remove_zb = subparsers.add_parser(
+        "remove-zigbee", help="Remove a paired Zigbee sensor", parents=[shared],
+    )
+    remove_zb.add_argument(
+        "device", type=str,
+        help="Device name or IEEE address to remove",
+    )
+
     return parser
 
 
@@ -208,6 +216,8 @@ def main() -> None:
         asyncio.run(cli.cmd_test_hardware(config, mock, subsystem=args.subsystem))
     elif args.command == "pair-zigbee":
         asyncio.run(cli.cmd_pair_zigbee(config, mock, timeout=args.timeout, rename=args.rename))
+    elif args.command == "remove-zigbee":
+        asyncio.run(cli.cmd_remove_zigbee(config, mock, name_or_ieee=args.device))
     elif args.command == "upload":
         if not config.is_configured:
             print(
