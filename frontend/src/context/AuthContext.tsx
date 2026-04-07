@@ -1,6 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from 'react'
 import type { User } from '../api/auth'
-import { getMe, login as apiLogin, updateMyLanguage } from '../api/auth'
+import { getMe, login as apiLogin, updateMyLanguage, updateMyPreferences } from '../api/auth'
 import { apiFetch, setLoggedIn, setLoggedOut } from '../api/client'
 import i18n from '../i18n'
 
@@ -11,6 +11,7 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<void>
   logout: () => void
   setLanguage: (lang: string) => Promise<void>
+  updatePreferences: (preferences: Record<string, unknown>) => Promise<void>
 }
 
 const AuthContext = createContext<AuthContextType | null>(null)
@@ -56,8 +57,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }
 
+  const handleUpdatePreferences = async (preferences: Record<string, unknown>) => {
+    if (user) {
+      const updated = await updateMyPreferences(preferences)
+      setUser(updated)
+    }
+  }
+
   return (
-    <AuthContext.Provider value={{ user, isAdmin: user?.role === 'admin', loading, login, logout, setLanguage }}>
+    <AuthContext.Provider value={{ user, isAdmin: user?.role === 'admin', loading, login, logout, setLanguage, updatePreferences: handleUpdatePreferences }}>
       {children}
     </AuthContext.Provider>
   )

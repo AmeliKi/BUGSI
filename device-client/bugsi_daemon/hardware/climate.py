@@ -399,6 +399,7 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
         self._last_reading: dict = {}
         self._data_event = asyncio.Event()
         self._app = None  # zigpy ControllerApplication
+        self._device_listener: _AppDeviceListener | None = None
 
     async def initialize(self) -> None:
         try:
@@ -431,6 +432,14 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
         return self._last_reading
 
     async def shutdown(self) -> None:
+        # Cancel any running device monitor tasks
+        if self._device_listener is not None:
+            for task in self._device_listener._monitor_tasks:
+                if not task.done():
+                    task.cancel()
+            self._device_listener._monitor_tasks.clear()
+            self._device_listener = None
+
         if self._app is not None:
             try:
                 await self._app.shutdown()
@@ -477,7 +486,8 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
 
         # Listen for devices that join/initialize after power-on
         if self._app is not None:
-            self._app.add_listener(_AppDeviceListener(self))
+            self._device_listener = _AppDeviceListener(self)
+            self._app.add_listener(self._device_listener)
 
         # Install listeners on target device if already paired
         self._install_listeners_on_target()

@@ -7,6 +7,7 @@ export interface User {
   role: 'admin' | 'user'
   is_active: boolean
   language: string
+  preferences: Record<string, unknown>
   created_at: string
   updated_at: string
 }
@@ -43,6 +44,14 @@ export async function updateMyLanguage(language: string): Promise<User> {
   const { data } = await apiFetch<User>('/auth/me/language', {
     method: 'PATCH',
     body: JSON.stringify({ language }),
+  })
+  return data
+}
+
+export async function updateMyPreferences(preferences: Record<string, unknown>): Promise<User> {
+  const { data } = await apiFetch<User>('/auth/me/preferences', {
+    method: 'PATCH',
+    body: JSON.stringify({ preferences }),
   })
   return data
 }

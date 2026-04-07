@@ -15,7 +15,7 @@ from app.models.user import User
 from app.telemetry import login_attempts_counter
 from app.repositories import user_repo
 from app.schemas.auth import LoginRequest, RefreshRequest, TokenResponse
-from app.schemas.user import ChangePassword, UserResponse
+from app.schemas.user import ChangePassword, UpdatePreferencesRequest, UserResponse
 from app.services import user_service
 from app.services.audit_service import log_action
 from app.services.auth_service import (
@@ -213,6 +213,35 @@ async def update_my_language(
     if data.language not in SUPPORTED_LANGUAGES:
         raise HTTPException(status_code=422, detail=f"Language must be one of: {', '.join(SUPPORTED_LANGUAGES)}")
     user.language = data.language
+    await db.flush()
+    await db.refresh(user)
+    return user
+
+
+VALID_TELEMETRY_FIELDS = {
+    "battery_voltage", "battery_soc", "battery_current", "battery_power",
+    "battery_consumed_ah", "battery_ttg_min", "temperature", "humidity",
+    "lte_signal_strength", "lte_signal_quality", "storage_used_mb",
+    "storage_total_mb", "cpu_temp", "uptime_seconds", "pictures_taken",
+}
+
+
+@router.patch("/me/preferences", response_model=UserResponse)
+async def update_my_preferences(
+    data: UpdatePreferencesRequest,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    new_prefs = data.preferences
+    if "hidden_telemetry_fields" in new_prefs:
+        hidden = new_prefs["hidden_telemetry_fields"]
+        if not isinstance(hidden, list):
+            raise HTTPException(status_code=422, detail="hidden_telemetry_fields must be a list")
+        invalid = set(hidden) - VALID_TELEMETRY_FIELDS
+        if invalid:
+            raise HTTPException(status_code=422, detail=f"Invalid telemetry fields: {', '.join(sorted(invalid))}")
+    merged = {**(user.preferences or {}), **new_prefs}
+    user.preferences = merged
     await db.flush()
     await db.refresh(user)
     return user

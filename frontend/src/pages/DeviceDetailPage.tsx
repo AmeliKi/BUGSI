@@ -1,24 +1,30 @@
-import { ArrowLeft, Settings } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { ArrowLeft, Eye, EyeOff, Settings } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import type { Device, TelemetryReading, Thumbnail } from '../api/devices'
 import { activateDevice, deactivateDevice, getDevice, getTelemetry, getThumbnails } from '../api/devices'
-import TelemetryChart from '../components/devices/TelemetryChart'
+import TelemetrySectionGroup, { TELEMETRY_SECTIONS } from '../components/devices/TelemetrySectionGroup'
 import { useAuth } from '../context/AuthContext'
 import { cn, formatDate, isOnline } from '../lib/utils'
 
 type Tab = 'telemetry' | 'thumbnails'
 
+const ALL_TELEMETRY_FIELDS = TELEMETRY_SECTIONS.flatMap((s) => s.charts.map((c) => c.dataKey))
+
 export default function DeviceDetailPage() {
   const { t } = useTranslation()
-  const { isAdmin } = useAuth()
+  const { user, isAdmin, updatePreferences } = useAuth()
   const navigate = useNavigate()
   const { deviceId } = useParams<{ deviceId: string }>()
   const [device, setDevice] = useState<Device | null>(null)
   const [tab, setTab] = useState<Tab>('telemetry')
   const [telemetry, setTelemetry] = useState<TelemetryReading[]>([])
   const [thumbnails, setThumbnails] = useState<Thumbnail[]>([])
+  const [showVisibilityMenu, setShowVisibilityMenu] = useState(false)
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  const hiddenFields = ((user?.preferences as Record<string, unknown>)?.hidden_telemetry_fields as string[]) ?? []
 
   useEffect(() => {
     if (!deviceId) return
@@ -26,6 +32,16 @@ export default function DeviceDetailPage() {
     getTelemetry(deviceId, { limit: 100 }).then(({ data }) => setTelemetry(data))
     getThumbnails(deviceId, { limit: 30 }).then(({ data }) => setThumbnails(data))
   }, [deviceId])
+
+  useEffect(() => {
+    function handleClickOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setShowVisibilityMenu(false)
+      }
+    }
+    if (showVisibilityMenu) document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [showVisibilityMenu])
 
   if (!device) return <p className="text-gray-500">{t('device.loading')}</p>
 
@@ -39,6 +55,21 @@ export default function DeviceDetailPage() {
     await activateDevice(device.id)
     const { data } = await getDevice(device.id)
     setDevice(data)
+  }
+
+  const toggleField = async (field: string) => {
+    const newHidden = hiddenFields.includes(field)
+      ? hiddenFields.filter((f) => f !== field)
+      : [...hiddenFields, field]
+    await updatePreferences({ hidden_telemetry_fields: newHidden })
+  }
+
+  const showAll = async () => {
+    await updatePreferences({ hidden_telemetry_fields: [] })
+  }
+
+  const hideAll = async () => {
+    await updatePreferences({ hidden_telemetry_fields: [...ALL_TELEMETRY_FIELDS] })
   }
 
   const online = isOnline(device.last_seen_at)
@@ -99,7 +130,7 @@ export default function DeviceDetailPage() {
       </div>
 
       <div className="border-b border-gray-200 mb-6">
-        <nav className="flex gap-6">
+        <nav className="flex gap-6 items-center">
           {tabs.map((tabItem) => (
             <button
               key={tabItem.key}
@@ -114,26 +145,58 @@ export default function DeviceDetailPage() {
               {tabItem.label}
             </button>
           ))}
+          {tab === 'telemetry' && (
+            <div className="relative ml-auto pb-3" ref={menuRef}>
+              <button
+                onClick={() => setShowVisibilityMenu(!showVisibilityMenu)}
+                className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"
+                title={t('telemetry.visibility')}
+              >
+                {hiddenFields.length > 0 ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                <span className="hidden sm:inline">{t('telemetry.visibility')}</span>
+              </button>
+              {showVisibilityMenu && (
+                <div className="absolute right-0 top-full mt-1 w-64 bg-white rounded-lg border shadow-lg z-10 p-3">
+                  <p className="text-xs text-gray-500 mb-2">{t('telemetry.visibility.description')}</p>
+                  <div className="flex gap-2 mb-2">
+                    <button onClick={showAll} className="text-xs text-green-600 hover:underline">{t('telemetry.visibility.show_all')}</button>
+                    <button onClick={hideAll} className="text-xs text-gray-500 hover:underline">{t('telemetry.visibility.hide_all')}</button>
+                  </div>
+                  <div className="space-y-1 max-h-64 overflow-y-auto">
+                    {TELEMETRY_SECTIONS.map((section) => (
+                      <div key={section.titleKey}>
+                        <p className="text-xs font-semibold text-gray-600 mt-2 mb-1">{t(section.titleKey)}</p>
+                        {section.charts.map((chart) => (
+                          <label key={chart.dataKey} className="flex items-center gap-2 py-0.5 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={!hiddenFields.includes(chart.dataKey)}
+                              onChange={() => toggleField(chart.dataKey)}
+                              className="rounded border-gray-300 text-green-600 focus:ring-green-500"
+                            />
+                            <span className="text-sm text-gray-700">{t(chart.labelKey)}</span>
+                          </label>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
         </nav>
       </div>
 
       {tab === 'telemetry' && (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          <div className="bg-white rounded-lg border p-4">
-            <TelemetryChart readings={telemetry} dataKey="battery_soc" label={t('telemetry.battery_soc')} unit="%" />
-          </div>
-          <div className="bg-white rounded-lg border p-4">
-            <TelemetryChart readings={telemetry} dataKey="battery_voltage" label={t('telemetry.battery_voltage')} unit="V" color="#2563eb" />
-          </div>
-          <div className="bg-white rounded-lg border p-4">
-            <TelemetryChart readings={telemetry} dataKey="temperature" label={t('telemetry.temperature')} unit="°C" color="#dc2626" />
-          </div>
-          <div className="bg-white rounded-lg border p-4">
-            <TelemetryChart readings={telemetry} dataKey="humidity" label={t('telemetry.humidity')} unit="%" color="#7c3aed" />
-          </div>
-          <div className="bg-white rounded-lg border p-4">
-            <TelemetryChart readings={telemetry} dataKey="pictures_taken" label={t('telemetry.pictures_taken')} unit="" color="#f59e0b" />
-          </div>
+        <div className="space-y-8">
+          {TELEMETRY_SECTIONS.map((section) => (
+            <TelemetrySectionGroup
+              key={section.titleKey}
+              section={section}
+              readings={telemetry}
+              hiddenFields={hiddenFields}
+            />
+          ))}
         </div>
       )}
 

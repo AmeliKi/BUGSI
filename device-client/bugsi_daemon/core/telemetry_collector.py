@@ -78,14 +78,34 @@ class TelemetryCollector:
         return self._last_battery_soc
 
     async def _read_climate(self) -> dict:
-        """Read climate sensor, powering on Zigbee if needed."""
+        """Read climate sensor, powering on Zigbee if needed.
+
+        Sleepy Zigbee sensors (e.g. SNZB-02) only report every 30-60s,
+        so we wait up to 90s for data after powering on the coordinator.
+        If the serial port is locked (daemon running), we skip gracefully.
+        """
         powered_on = False
         try:
             if isinstance(self._climate, PowerControllable) and not self._climate.is_powered():
-                await self._climate.power_on()
-                powered_on = True
+                try:
+                    await self._climate.power_on()
+                    powered_on = True
+                except Exception:
+                    logger.warning(
+                        "Could not power on climate sensor (serial port may be "
+                        "in use by the daemon). Skipping climate reading."
+                    )
+                    return {}
+                # Sleepy Zigbee devices need time to wake up and report
                 if hasattr(self._climate, "wait_for_reading"):
-                    await self._climate.wait_for_reading(timeout=30)
+                    reading = await self._climate.wait_for_reading(timeout=90)
+                    if reading:
+                        logger.info("Climate reading after wait: %s", reading)
+                    if reading and ("temperature" in reading or "humidity" in reading):
+                        return reading
+                    logger.warning(
+                        "Zigbee sensor did not report temperature within 90s"
+                    )
             return await self._safe_read(self._climate, "climate")
         except Exception:
             logger.exception("Failed to read climate sensor")

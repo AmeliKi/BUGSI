@@ -81,10 +81,10 @@ class BufferStore:
         return [(row[0], json.loads(row[1])) for row in rows]
 
     async def get_pending_thumbnails(self, limit: int = 100) -> list[tuple[int, str, str]]:
-        """Returns list of (id, file_path, timestamp)."""
+        """Returns list of (id, file_path, timestamp), newest first."""
         cursor = await self._db.execute(
             "SELECT id, file_path, timestamp "
-            "FROM thumbnail_buffer WHERE synced = 0 ORDER BY id LIMIT ?",
+            "FROM thumbnail_buffer WHERE synced = 0 ORDER BY id DESC LIMIT ?",
             (limit,),
         )
         return await cursor.fetchall()

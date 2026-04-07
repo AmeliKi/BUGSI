@@ -9,6 +9,7 @@ User=bugsi
 ExecStart=/opt/bugsi/venv/bin/bugsi run
 Restart=always
 RestartSec=5
+TimeoutStopSec=10
 Environment=BUGSI_MOCK_HARDWARE=false
 Environment=LIBCAMERA_LOG_LEVELS=*:WARN
 

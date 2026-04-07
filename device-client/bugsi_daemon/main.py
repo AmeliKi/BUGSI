@@ -123,20 +123,48 @@ async def run_daemon(config: ConfigManager, mock: bool) -> None:
         web_server._components["scheduler"] = scheduler
 
     loop = asyncio.get_event_loop()
+    stop_event = asyncio.Event()
 
     def handle_signal():
         logging.getLogger(__name__).info("Signal received, shutting down...")
-        asyncio.ensure_future(scheduler.shutdown())
+        stop_event.set()
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, handle_signal)
 
     try:
-        await scheduler.start()
+        scheduler_task = asyncio.create_task(scheduler.start())
+        stop_task = asyncio.create_task(stop_event.wait())
+        await asyncio.wait(
+            [scheduler_task, stop_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
     finally:
-        await components["buffer"].close()
-        components["client"].close()
-        logging.getLogger(__name__).info("Daemon stopped")
+        log = logging.getLogger(__name__)
+
+        # Watchdog: if cleanup takes >8s, force exit
+        watchdog = loop.call_later(8.0, lambda: os._exit(1))
+
+        try:
+            # 1. Stop scheduler loops
+            await scheduler.stop()
+
+            # 2. Shut down all hardware sensors (especially zigpy)
+            hw = components.get("hw", {})
+            for name, sensor in hw.items():
+                if hasattr(sensor, "shutdown"):
+                    try:
+                        await asyncio.wait_for(sensor.shutdown(), timeout=3.0)
+                    except Exception:
+                        log.warning("Error shutting down %s", name, exc_info=True)
+
+            # 3. Close buffer and client
+            await components["buffer"].close()
+            components["client"].close()
+        finally:
+            watchdog.cancel()
+
+        log.info("Daemon stopped")
 
 
 async def _wait_for_credentials(config: ConfigManager) -> None:

@@ -29,9 +29,14 @@ export interface TelemetryReading {
   battery_soc: number | null
   battery_current: number | null
   battery_power: number | null
+  battery_consumed_ah: number | null
+  battery_ttg_min: number | null
   temperature: number | null
   humidity: number | null
   lte_signal_strength: number | null
+  lte_signal_quality: number | null
+  storage_used_mb: number | null
+  storage_total_mb: number | null
   cpu_temp: number | null
   uptime_seconds: number | null
   pictures_taken: number | null
