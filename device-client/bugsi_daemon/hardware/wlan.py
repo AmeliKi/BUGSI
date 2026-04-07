@@ -43,3 +43,18 @@ class SystemWlan(WlanInterface):
 
     def is_enabled(self) -> bool:
         return self._enabled
+
+    async def has_internet(self) -> bool:
+        """Check internet connectivity by pinging a public DNS server."""
+        if not self._enabled:
+            return False
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                "ping", "-c", "1", "-W", "3", "1.1.1.1",
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await proc.communicate()
+            return proc.returncode == 0
+        except Exception:
+            return False

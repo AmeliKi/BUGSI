@@ -111,6 +111,10 @@ class WlanInterface(ABC):
     def is_enabled(self) -> bool:
         """Return True if the WLAN radio is currently enabled."""
 
+    @abstractmethod
+    async def has_internet(self) -> bool:
+        """Return True if WLAN is connected and has internet access."""
+
 
 # --- Camera interfaces ---
 

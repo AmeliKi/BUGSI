@@ -7,6 +7,7 @@ from bugsi_daemon.config import ConfigManager
 from bugsi_daemon.core.power_manager import PowerManager, PowerMode
 from bugsi_daemon.core.telemetry_collector import TelemetryCollector
 from bugsi_daemon.core.upload_cycle import UploadCycle
+from bugsi_daemon.hardware_mock.wlan import MockWlan
 from bugsi_daemon.net.client import BugsiClient
 
 
@@ -153,5 +154,113 @@ class TestUploadCycle:
         # Data should still be in buffer
         pending = await buffer_store.get_pending_telemetry()
         assert len(pending) == 1
+
+        client.close()
+
+    @respx.mock
+    async def test_upload_uses_wlan_when_internet_available(self, buffer_store, mock_hardware, config_manager, tmp_path):
+        """When WLAN has internet, upload should skip LTE entirely."""
+        for sensor in mock_hardware.values():
+            if hasattr(sensor, "initialize"):
+                await sensor.initialize()
+
+        wlan = MockWlan(has_internet=True)
+        client = BugsiClient(config_manager.api_url, config_manager.api_key)
+        backup = BufferBackup(str(tmp_path / "buffer.db"), str(tmp_path / "backup"))
+
+        telemetry = TelemetryCollector(
+            buffer=buffer_store,
+            battery=mock_hardware["battery"],
+            solar=mock_hardware["solar"],
+            climate=mock_hardware["climate"],
+            storage=mock_hardware["storage"],
+            system=mock_hardware["system"],
+            lte=mock_hardware["lte"],
+        )
+
+        power_manager = PowerManager(
+            config=config_manager,
+            lte=mock_hardware["lte"],
+            power_mgmt=mock_hardware["power_mgmt"],
+            backup=backup,
+        )
+
+        upload = UploadCycle(
+            client=client,
+            buffer=buffer_store,
+            config=config_manager,
+            power_manager=power_manager,
+            telemetry_collector=telemetry,
+            wlan=wlan,
+        )
+
+        await buffer_store.push_telemetry({"timestamp": "2026-03-07T12:00:00Z", "battery_soc": 75.0})
+
+        respx.post("http://test:8000/api/device-data/telemetry").mock(
+            return_value=httpx.Response(201, json=[{"id": "abc"}])
+        )
+        respx.get("http://test:8000/api/device-data/config").mock(
+            return_value=httpx.Response(200, json={"version": 1, "config": {}, "has_update": False})
+        )
+
+        success = await upload.run(last_battery_soc=80.0)
+        assert success
+
+        # LTE should never have been powered on
+        assert not mock_hardware["lte"].is_powered()
+
+        client.close()
+
+    @respx.mock
+    async def test_upload_falls_back_to_lte_when_no_wlan_internet(self, buffer_store, mock_hardware, config_manager, tmp_path):
+        """When WLAN has no internet, upload should use LTE as before."""
+        for sensor in mock_hardware.values():
+            if hasattr(sensor, "initialize"):
+                await sensor.initialize()
+
+        wlan = MockWlan(has_internet=False)
+        client = BugsiClient(config_manager.api_url, config_manager.api_key)
+        backup = BufferBackup(str(tmp_path / "buffer.db"), str(tmp_path / "backup"))
+
+        telemetry = TelemetryCollector(
+            buffer=buffer_store,
+            battery=mock_hardware["battery"],
+            solar=mock_hardware["solar"],
+            climate=mock_hardware["climate"],
+            storage=mock_hardware["storage"],
+            system=mock_hardware["system"],
+            lte=mock_hardware["lte"],
+        )
+
+        power_manager = PowerManager(
+            config=config_manager,
+            lte=mock_hardware["lte"],
+            power_mgmt=mock_hardware["power_mgmt"],
+            backup=backup,
+        )
+
+        upload = UploadCycle(
+            client=client,
+            buffer=buffer_store,
+            config=config_manager,
+            power_manager=power_manager,
+            telemetry_collector=telemetry,
+            wlan=wlan,
+        )
+
+        await buffer_store.push_telemetry({"timestamp": "2026-03-07T12:00:00Z", "battery_soc": 75.0})
+
+        respx.post("http://test:8000/api/device-data/telemetry").mock(
+            return_value=httpx.Response(201, json=[{"id": "abc"}])
+        )
+        respx.get("http://test:8000/api/device-data/config").mock(
+            return_value=httpx.Response(200, json={"version": 1, "config": {}, "has_update": False})
+        )
+
+        success = await upload.run(last_battery_soc=80.0)
+        assert success
+
+        # LTE should have been powered on (then off in finally)
+        assert not mock_hardware["lte"].is_powered()
 
         client.close()

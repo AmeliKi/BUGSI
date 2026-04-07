@@ -87,7 +87,7 @@
     "enabled": true,
     "host": "0.0.0.0",
     "port": 8080,
-    "camera_fps": 4,
+    "camera_fps": 10,
     "stream_width": 960,
     "detections_dir": "/mnt/usb/bugsi/detections"
   }

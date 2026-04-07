@@ -6,6 +6,7 @@ from bugsi_daemon.buffer.store import BufferStore
 from bugsi_daemon.config import ConfigManager
 from bugsi_daemon.core.power_manager import PowerManager, PowerMode
 from bugsi_daemon.core.telemetry_collector import TelemetryCollector
+from bugsi_daemon.hardware.base import WlanInterface
 from bugsi_daemon.net.client import BugsiClient
 
 logger = logging.getLogger(__name__)
@@ -21,12 +22,14 @@ class UploadCycle:
         config: ConfigManager,
         power_manager: PowerManager,
         telemetry_collector: TelemetryCollector,
+        wlan: WlanInterface | None = None,
     ):
         self._client = client
         self._buffer = buffer
         self._config = config
         self._power_manager = power_manager
         self._telemetry = telemetry_collector
+        self._wlan = wlan
 
     async def run(self, last_battery_soc: float | None = None) -> bool:
         """Run one upload cycle. Returns True if data was uploaded successfully."""
@@ -39,17 +42,23 @@ class UploadCycle:
             )
             return False
 
+        use_lte = True
         try:
-            # Power on LTE
-            await self._power_manager.set_mode(PowerMode.UPLOAD)
+            # Use WLAN if it already has internet, otherwise fall back to LTE
+            if self._wlan and await self._wlan.has_internet():
+                logger.info("WLAN has internet, skipping LTE")
+                use_lte = False
+            else:
+                # Power on LTE
+                await self._power_manager.set_mode(PowerMode.UPLOAD)
 
-            # Wait for network
-            if not await self._power_manager._lte.wait_for_network(timeout=60):
-                logger.error("Upload skipped: LTE network registration timeout")
-                return False
+                # Wait for network
+                if not await self._power_manager._lte.wait_for_network(timeout=60):
+                    logger.error("Upload skipped: LTE network registration timeout")
+                    return False
 
-            # Update LTE signal info
-            await self._telemetry.update_lte_signal()
+                # Update LTE signal info
+                await self._telemetry.update_lte_signal()
 
             # OTA check first (priority over data upload)
             if self._config.get("upload.ota_check_enabled", True):
@@ -79,7 +88,8 @@ class UploadCycle:
             logger.exception("Upload cycle failed")
             return False
         finally:
-            await self._power_manager.set_mode(PowerMode.ACTIVE)
+            if use_lte:
+                await self._power_manager.set_mode(PowerMode.ACTIVE)
 
     async def _check_and_apply_ota(self) -> bool:
         """Check for OTA update. Returns True if update was applied."""

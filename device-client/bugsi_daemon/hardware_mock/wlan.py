@@ -10,8 +10,9 @@ logger = logging.getLogger(__name__)
 class MockWlan(WlanInterface):
     """Mock WLAN control - logs actions and tracks state."""
 
-    def __init__(self):
+    def __init__(self, has_internet: bool = False):
         self._enabled = True
+        self._has_internet = has_internet
 
     async def enable(self) -> None:
         self._enabled = True
@@ -23,3 +24,6 @@ class MockWlan(WlanInterface):
 
     def is_enabled(self) -> bool:
         return self._enabled
+
+    async def has_internet(self) -> bool:
+        return self._enabled and self._has_internet

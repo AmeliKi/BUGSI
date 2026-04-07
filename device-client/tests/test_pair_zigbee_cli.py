@@ -1,5 +1,5 @@
 import asyncio
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -48,3 +48,26 @@ async def test_cmd_pair_zigbee_mock_with_rename_success(capsys):
     assert "Renaming" in output
     assert "my_sensor" in output
     assert "OK" in output
+
+
+@pytest.mark.asyncio
+async def test_cmd_pair_zigbee_handles_power_failure(capsys):
+    """Pair-zigbee reports error and shuts down cleanly when power_on fails."""
+    config = MagicMock()
+    config.get.return_value = None
+
+    mock_climate = AsyncMock()
+    mock_climate.power_on = AsyncMock(
+        side_effect=BrokenPipeError("Broken pipe"),
+    )
+    mock_climate.power_off = AsyncMock()
+
+    mock_hw = {"climate": mock_climate}
+    with patch("bugsi_daemon.cli._init_hardware", AsyncMock(return_value=mock_hw)):
+        await cmd_pair_zigbee(config, mock=False, timeout=120, rename=None)
+
+    output = capsys.readouterr().out
+    assert "ERROR" in output
+    assert "Failed to start Zigbee controller" in output
+    assert "FEHLER" in output
+    mock_climate.power_off.assert_called_once()

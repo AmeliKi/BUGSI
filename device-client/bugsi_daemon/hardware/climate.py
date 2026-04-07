@@ -25,6 +25,11 @@ _ZIGBEE_VID_PIDS = {"10c4:ea60", "1a86:55d4", "1cf1:0030", "0451:16a8"}
 # Serial port patterns for auto-detection
 _SERIAL_PATTERNS = ("*Sonoff*Zigbee*", "*10c4*")
 
+# zigpy connection retry settings (for transient USB serial errors)
+_ZIGPY_RETRY_MAX_ATTEMPTS = 3
+_ZIGPY_RETRY_BASE_DELAY = 2.0
+_ZIGPY_RETRY_BACKOFF_FACTOR = 2.0
+
 # ZCL cluster IDs
 _CLUSTER_TEMPERATURE = 0x0402
 _CLUSTER_HUMIDITY = 0x0405
@@ -464,7 +469,7 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
             logger.exception("Failed to start zigpy controller")
             self._healthy = False
             self._powered = True  # USB dongle is on, even if zigpy failed
-            return
+            raise
 
         self._powered = True
         self._healthy = True
@@ -630,8 +635,21 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
     # --- zigpy controller management ---
 
     async def _start_zigpy(self, serial_port: str) -> None:
-        """Create and start the zigpy ControllerApplication."""
+        """Create and start the zigpy ControllerApplication.
+
+        Retries with exponential backoff on transient connection errors
+        (e.g. BrokenPipeError when the USB serial device isn't ready).
+        """
         from bellows.zigbee.application import ControllerApplication
+
+        try:
+            from zigpy.exceptions import TransientConnectionError
+        except ImportError:
+            TransientConnectionError = None
+
+        retryable = (OSError,)
+        if TransientConnectionError is not None:
+            retryable = (OSError, TransientConnectionError)
 
         self._database_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -645,9 +663,32 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
             },
         }
 
-        self._app = await ControllerApplication.new(zigpy_config, auto_form=True)
-        logger.info("zigpy controller started (channel %d, db %s)",
-                     self._network_channel, self._database_path)
+        last_exc: Exception | None = None
+        delay = _ZIGPY_RETRY_BASE_DELAY
+        for attempt in range(1, _ZIGPY_RETRY_MAX_ATTEMPTS + 1):
+            try:
+                self._app = await ControllerApplication.new(
+                    zigpy_config, auto_form=True,
+                )
+                logger.info("zigpy controller started (channel %d, db %s)",
+                            self._network_channel, self._database_path)
+                return
+            except retryable as exc:
+                last_exc = exc
+                if attempt < _ZIGPY_RETRY_MAX_ATTEMPTS:
+                    logger.warning(
+                        "zigpy connection attempt %d/%d failed (%s), "
+                        "retrying in %.1fs",
+                        attempt, _ZIGPY_RETRY_MAX_ATTEMPTS, exc, delay,
+                    )
+                    await asyncio.sleep(delay)
+                    delay *= _ZIGPY_RETRY_BACKOFF_FACTOR
+                else:
+                    logger.error(
+                        "zigpy connection failed after %d attempts",
+                        _ZIGPY_RETRY_MAX_ATTEMPTS,
+                    )
+        raise last_exc
 
     # --- ZCL listener management ---
 
@@ -864,12 +905,18 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
                 self._usb_port = cached_port
                 logger.info("Using cached Zigbee USB location: hub %s port %s", cached_hub, cached_port)
 
-        # If still unknown, power on each hub individually, then re-detect
+        # If still unknown and powering ON, try all hubs to find the dongle
         if self._usb_hub is None:
-            await self._uhubctl_power_all_hubs(action)
             if action == "on":
+                await self._uhubctl_power_all_hubs("on")
                 await asyncio.sleep(1)
                 await self._auto_detect_zigbee_usb()
+            else:
+                # Never power off all hubs — that kills cameras, storage, etc.
+                logger.warning(
+                    "Skipping USB power-off: Zigbee dongle hub/port unknown "
+                    "(cannot safely power off without affecting other devices)"
+                )
             return
 
         cmd = ["uhubctl", "-a", action, "-l", str(self._usb_hub), "-p", str(self._usb_port)]

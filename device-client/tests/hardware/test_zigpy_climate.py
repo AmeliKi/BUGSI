@@ -102,6 +102,34 @@ class TestPowerOn:
                         mock_start.assert_called_once_with("/dev/ttyUSB0")
 
 
+class _FakeTransientConnectionError(Exception):
+    """Stand-in for zigpy.exceptions.TransientConnectionError in tests."""
+
+
+def _mock_bellows(mock_ctrl):
+    """Inject a mock bellows module into sys.modules so _start_zigpy's
+    ``from bellows.zigbee.application import ControllerApplication`` works
+    without bellows installed."""
+    mod_app = MagicMock()
+    mod_app.ControllerApplication = mock_ctrl
+    mod_zigbee = MagicMock()
+    mod_zigbee.application = mod_app
+    mod_bellows = MagicMock()
+    mod_bellows.zigbee = mod_zigbee
+    mod_bellows.zigbee.application = mod_app
+
+    mod_zigpy_exc = MagicMock()
+    mod_zigpy_exc.TransientConnectionError = _FakeTransientConnectionError
+
+    return patch.dict("sys.modules", {
+        "bellows": mod_bellows,
+        "bellows.zigbee": mod_zigbee,
+        "bellows.zigbee.application": mod_app,
+        "zigpy": MagicMock(),
+        "zigpy.exceptions": mod_zigpy_exc,
+    })
+
+
 @pytest.mark.asyncio
 class TestStartZigpy:
     """Regression tests for _start_zigpy() — must use ControllerApplication.new()
@@ -113,9 +141,10 @@ class TestStartZigpy:
 
         mock_app = AsyncMock()
         mock_app.startup = AsyncMock()
+        MockCtrl = MagicMock()
+        MockCtrl.new = AsyncMock(return_value=mock_app)
 
-        with patch("bellows.zigbee.application.ControllerApplication") as MockCtrl:
-            MockCtrl.new = AsyncMock(return_value=mock_app)
+        with _mock_bellows(MockCtrl):
             await sensor._start_zigpy("/dev/ttyUSB0")
 
         MockCtrl.new.assert_called_once()
@@ -133,15 +162,142 @@ class TestStartZigpy:
         )
 
         mock_app = AsyncMock()
+        MockCtrl = MagicMock()
+        MockCtrl.new = AsyncMock(return_value=mock_app)
 
-        with patch("bellows.zigbee.application.ControllerApplication") as MockCtrl:
-            MockCtrl.new = AsyncMock(return_value=mock_app)
+        with _mock_bellows(MockCtrl):
             await sensor._start_zigpy("/dev/ttyUSB0")
 
         config_arg = MockCtrl.new.call_args[0][0]
         assert config_arg["database_path"] == str(db)
         assert config_arg["device"]["path"] == "/dev/ttyUSB0"
         assert config_arg["network"]["channel"] == 15
+
+    async def test_retries_on_broken_pipe_error(self, tmp_path):
+        sensor = _make_sensor(database_path=str(tmp_path / "zigbee.db"))
+        mock_app = AsyncMock()
+
+        call_count = 0
+
+        async def fail_twice(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count < 3:
+                raise BrokenPipeError("Broken pipe")
+            return mock_app
+
+        MockCtrl = MagicMock()
+        MockCtrl.new = AsyncMock(side_effect=fail_twice)
+
+        with _mock_bellows(MockCtrl):
+            with patch("asyncio.sleep", AsyncMock()) as mock_sleep:
+                await sensor._start_zigpy("/dev/ttyUSB0")
+
+        assert MockCtrl.new.call_count == 3
+        assert mock_sleep.call_count == 2
+        mock_sleep.assert_any_call(2.0)
+        mock_sleep.assert_any_call(4.0)
+        assert sensor._app is mock_app
+
+    async def test_retries_exhausted_raises(self, tmp_path):
+        sensor = _make_sensor(database_path=str(tmp_path / "zigbee.db"))
+
+        MockCtrl = MagicMock()
+        MockCtrl.new = AsyncMock(side_effect=BrokenPipeError("Broken pipe"))
+
+        with _mock_bellows(MockCtrl):
+            with patch("asyncio.sleep", AsyncMock()):
+                with pytest.raises(BrokenPipeError):
+                    await sensor._start_zigpy("/dev/ttyUSB0")
+
+        assert MockCtrl.new.call_count == 3
+        assert sensor._app is None
+
+    async def test_non_retryable_error_no_retry(self, tmp_path):
+        sensor = _make_sensor(database_path=str(tmp_path / "zigbee.db"))
+
+        MockCtrl = MagicMock()
+        MockCtrl.new = AsyncMock(side_effect=ValueError("bad config"))
+
+        with _mock_bellows(MockCtrl):
+            with patch("asyncio.sleep", AsyncMock()) as mock_sleep:
+                with pytest.raises(ValueError, match="bad config"):
+                    await sensor._start_zigpy("/dev/ttyUSB0")
+
+        assert MockCtrl.new.call_count == 1
+        mock_sleep.assert_not_called()
+
+
+@pytest.mark.asyncio
+class TestPowerOnErrorPropagation:
+    async def test_power_on_raises_on_zigpy_failure(self):
+        sensor = _make_sensor(serial_port="/dev/ttyUSB0")
+
+        with patch.object(sensor, "_uhubctl_power", AsyncMock()):
+            with patch("asyncio.sleep", AsyncMock()):
+                with patch.object(
+                    sensor, "_start_zigpy",
+                    AsyncMock(side_effect=OSError("serial error")),
+                ):
+                    with pytest.raises(OSError, match="serial error"):
+                        await sensor.power_on()
+
+        assert sensor.is_powered()
+        assert not sensor.is_healthy()
+        assert sensor._app is None
+
+    async def test_power_off_works_after_failed_power_on(self):
+        sensor = _make_sensor(serial_port="/dev/ttyUSB0")
+
+        with patch.object(sensor, "_uhubctl_power", AsyncMock()) as mock_uhub:
+            with patch("asyncio.sleep", AsyncMock()):
+                with patch.object(
+                    sensor, "_start_zigpy",
+                    AsyncMock(side_effect=OSError("serial error")),
+                ):
+                    with pytest.raises(OSError):
+                        await sensor.power_on()
+
+            await sensor.power_off()
+
+        assert not sensor.is_powered()
+        # uhubctl called for power on AND power off
+        assert mock_uhub.call_count == 2
+
+
+@pytest.mark.asyncio
+class TestUhubctlSafety:
+    async def test_power_off_skips_all_hubs_when_dongle_unknown(self):
+        """power_off must NOT call _uhubctl_power_all_hubs — that kills all USB devices."""
+        sensor = _make_sensor(serial_port="/dev/ttyUSB0")
+        # Simulate: dongle hub/port never detected
+        sensor._usb_hub = None
+        sensor._usb_port = None
+
+        with patch.object(sensor, "_auto_detect_zigbee_usb", AsyncMock()):
+            with patch.object(sensor, "_uhubctl_power_all_hubs", AsyncMock()) as mock_all:
+                with patch.object(
+                    ZigbeeClimateSensor, "_load_usb_cache", return_value=(None, None),
+                ):
+                    await sensor._uhubctl_power("off")
+
+        mock_all.assert_not_called()
+
+    async def test_power_on_uses_all_hubs_for_detection(self):
+        """power_on may power on all hubs to find the dongle."""
+        sensor = _make_sensor(serial_port="/dev/ttyUSB0")
+        sensor._usb_hub = None
+        sensor._usb_port = None
+
+        with patch.object(sensor, "_auto_detect_zigbee_usb", AsyncMock()):
+            with patch.object(sensor, "_uhubctl_power_all_hubs", AsyncMock()) as mock_all:
+                with patch.object(
+                    ZigbeeClimateSensor, "_load_usb_cache", return_value=(None, None),
+                ):
+                    with patch("asyncio.sleep", AsyncMock()):
+                        await sensor._uhubctl_power("on")
+
+        mock_all.assert_called_once_with("on")
 
 
 @pytest.mark.asyncio

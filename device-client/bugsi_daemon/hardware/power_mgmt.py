@@ -85,14 +85,23 @@ class WittyPiPowerManager(PowerManagementInterface):
     async def shutdown(self) -> None:
         logger.info("WittyPi5 resources released")
 
-    async def _run_wp5(self, *args: str) -> str:
+    async def _run_wp5(self, *args: str, timeout: float = 10.0) -> str:
         """Run wp5 CLI command and return stdout."""
         proc = await asyncio.create_subprocess_exec(
             "wp5", *args,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
         )
-        stdout, stderr = await proc.communicate()
+        try:
+            stdout, stderr = await asyncio.wait_for(
+                proc.communicate(), timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            raise RuntimeError(
+                f"wp5 {' '.join(args)} timed out after {timeout}s"
+            )
         if proc.returncode != 0:
             error_msg = stderr.decode().strip()
             raise RuntimeError(f"wp5 {' '.join(args)} failed: {error_msg}")

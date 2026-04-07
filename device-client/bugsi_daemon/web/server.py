@@ -82,6 +82,14 @@ class WebServer:
         self._shutting_down.set()
         await asyncio.sleep(0.2)  # give streams a moment to finish
 
+        # Stop background frame producers
+        web_cam = self._components.get("web_camera")
+        if web_cam is not None and hasattr(web_cam, "stop_producer"):
+            await web_cam.stop_producer()
+        web_ev = self._components.get("web_event_camera")
+        if web_ev is not None and hasattr(web_ev, "stop_producer"):
+            await web_ev.stop_producer()
+
         if self._runner:
             await self._runner.cleanup()
             self._runner = None

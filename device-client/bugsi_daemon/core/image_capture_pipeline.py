@@ -39,6 +39,7 @@ class ImageCapturePipeline:
         climate: HardwareSensor,
         buffer: BufferStore,
         save_dir: str,
+        coordinator=None,
     ) -> None:
         self._config = config
         self._event_camera = event_camera
@@ -46,6 +47,7 @@ class ImageCapturePipeline:
         self._climate = climate
         self._buffer = buffer
         self._save_dir = save_dir
+        self._coordinator = coordinator
         self._running = False
         self._pictures_taken = 0
         os.makedirs(save_dir, exist_ok=True)
@@ -159,10 +161,13 @@ class ImageCapturePipeline:
     def _capture_still(self) -> np.ndarray:
         """Open still camera, capture one frame, close immediately.
 
-        Retries once on failure to handle USB re-enumeration: the first
-        ``open()`` may connect to a stale device reference; closing and
-        re-opening lets the SDK rediscover the camera on its new port.
+        When a CameraCoordinator is available, uses it for thread-safe
+        access shared with the web stream.  Otherwise retries once on
+        failure to handle USB re-enumeration.
         """
+        if self._coordinator is not None:
+            return self._coordinator.capture_full_res()
+
         for attempt in range(2):
             self._still_camera.open()
             try:

@@ -131,12 +131,13 @@ async def reload_cameras(
     references in the components dict (used by web routes) and the image
     capture pipeline.
     """
-    from bugsi_daemon.web.camera import WebCamera, WebEventCamera
+    from bugsi_daemon.web.camera import CameraCoordinator, WebCamera, WebEventCamera
 
-    # Close old web cameras
+    # Stop background producers before closing cameras
     old_web_cam = components.get("web_camera")
     if old_web_cam is not None:
         try:
+            await old_web_cam.stop_producer()
             old_web_cam.close()
         except Exception:
             logger.warning("Error closing old WebCamera", exc_info=True)
@@ -144,6 +145,7 @@ async def reload_cameras(
     old_web_ev = components.get("web_event_camera")
     if old_web_ev is not None:
         try:
+            await old_web_ev.stop_producer()
             await old_web_ev.close()
         except Exception:
             logger.warning("Error closing old WebEventCamera", exc_info=True)
@@ -180,13 +182,21 @@ async def reload_cameras(
                 await hw[name].initialize()
                 cameras[name] = hw[name]
 
+    # Create coordinator for shared camera access
+    coordinator = None
+    still_cam = hw.get("still_camera")
+    if still_cam is not None:
+        coordinator = CameraCoordinator(still_cam)
+
     # Wrap for web
     try:
-        still_cam = hw.get("still_camera")
         if still_cam is not None:
             jpeg_quality = config.get("still_camera.jpeg_quality", 85)
             stream_width = config.get("webserver.stream_width", 960)
-            components["web_camera"] = WebCamera(still_cam, jpeg_quality=jpeg_quality, stream_width=stream_width)
+            components["web_camera"] = WebCamera(
+                still_cam, jpeg_quality=jpeg_quality,
+                stream_width=stream_width, coordinator=coordinator,
+            )
         else:
             components["web_camera"] = None
     except Exception:
@@ -208,6 +218,8 @@ async def reload_cameras(
     if image_pipeline is not None:
         image_pipeline._still_camera = hw["still_camera"]
         image_pipeline._event_camera = hw["event_camera"]
+        if coordinator is not None:
+            image_pipeline._coordinator = coordinator
 
     logger.info(
         "Cameras reloaded: still=%s, event=%s",
@@ -275,15 +287,21 @@ async def init_components(config: ConfigManager, mock: bool) -> dict:
     hw = create_hardware(mock, config)
     fallbacks = _mock_fallbacks()
 
-    # Initialize all sensors, falling back to mock if real driver not implemented
-    for name, sensor in list(hw.items()):
-        if hasattr(sensor, "initialize"):
-            try:
-                await sensor.initialize()
-            except NotImplementedError:
-                logger.warning("%s: real driver not implemented, using mock", name)
-                hw[name] = fallbacks[name]()
-                await hw[name].initialize()
+    # Initialize all sensors in parallel, falling back to mock if real driver not implemented
+    async def _init_sensor(name: str, sensor) -> None:
+        try:
+            await sensor.initialize()
+        except NotImplementedError:
+            logger.warning("%s: real driver not implemented, using mock", name)
+            hw[name] = fallbacks[name]()
+            await hw[name].initialize()
+
+    init_tasks = [
+        _init_sensor(name, sensor)
+        for name, sensor in hw.items()
+        if hasattr(sensor, "initialize")
+    ]
+    await asyncio.gather(*init_tasks)
 
     # Buffer - use temp path if configured path's parent doesn't exist (dev machine)
     db_path = config.get("storage.buffer_db_path", "/tmp/bugsi_buffer.db")
@@ -334,7 +352,15 @@ async def init_components(config: ConfigManager, mock: bool) -> dict:
         config=config,
         power_manager=power_manager,
         telemetry_collector=telemetry,
+        wlan=hw.get("wlan"),
     )
+
+    # Camera coordinator for shared access between web stream and pipeline
+    from bugsi_daemon.web.camera import CameraCoordinator
+    coordinator = None
+    still_cam = hw.get("still_camera")
+    if still_cam is not None:
+        coordinator = CameraCoordinator(still_cam)
 
     # Image capture pipeline
     image_pipeline = None
@@ -353,6 +379,7 @@ async def init_components(config: ConfigManager, mock: bool) -> dict:
             climate=hw["climate"],
             buffer=buffer,
             save_dir=save_dir,
+            coordinator=coordinator,
         )
 
     # Mock thumbnail generator (only in mock mode when image pipeline is disabled)
@@ -383,11 +410,13 @@ async def init_components(config: ConfigManager, mock: bool) -> dict:
             web_camera = None
             try:
                 from bugsi_daemon.web.camera import WebCamera
-                still_cam = hw.get("still_camera")
                 if still_cam is not None:
                     jpeg_quality = config.get("still_camera.jpeg_quality", 85)
                     stream_width = config.get("webserver.stream_width", 960)
-                    web_camera = WebCamera(still_cam, jpeg_quality=jpeg_quality, stream_width=stream_width)
+                    web_camera = WebCamera(
+                        still_cam, jpeg_quality=jpeg_quality,
+                        stream_width=stream_width, coordinator=coordinator,
+                    )
             except Exception:
                 logger.warning("Could not initialize camera for webserver, live view disabled", exc_info=True)
 
@@ -812,7 +841,14 @@ async def cmd_pair_zigbee(
 
     try:
         print("Powering on Zigbee stack...")
-        await climate.power_on()
+        try:
+            await climate.power_on()
+        except Exception as exc:
+            print(f"ERROR: Failed to start Zigbee controller: {exc}")
+            print("The USB dongle may not be connected, or the serial port is busy.")
+            print("Check 'dmesg | tail' for USB errors.")
+            print("FEHLER: Zigbee-Controller konnte nicht gestartet werden.")
+            return
 
         print(f"Zigbee stack ready. Opening pairing window for {timeout}s...")
         print("Put your Zigbee sensor into pairing mode now.")

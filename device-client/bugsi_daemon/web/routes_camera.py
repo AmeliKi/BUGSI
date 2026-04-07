@@ -59,7 +59,7 @@ def create_camera_routes(config: ConfigManager, components: dict) -> list[web.Ro
         if camera is None:
             return web.json_response({"error": "No camera available"}, status=503)
 
-        fps = config.get("webserver.camera_fps", 2)
+        fps = config.get("webserver.camera_fps", 10)
         interval = 1.0 / max(fps, 1)
 
         response = web.StreamResponse(
@@ -71,11 +71,14 @@ def create_camera_routes(config: ConfigManager, components: dict) -> list[web.Ro
         )
         await response.prepare(request)
 
+        await camera.notify_stream_start(fps)
         try:
             last_time = time.monotonic()
             while not _is_shutting_down():
+                cycle_start = time.monotonic()
+
                 try:
-                    image_bytes = await camera.capture_jpeg()
+                    image_bytes = await camera.get_cached_jpeg()
                 except Exception:
                     logger.exception("Stream capture failed")
                     break
@@ -96,9 +99,15 @@ def create_camera_routes(config: ConfigManager, components: dict) -> list[web.Ro
                 except _STREAM_CLOSED:
                     break
 
-                await asyncio.sleep(interval)
+                # Adaptive sleep: subtract time already spent capturing/writing
+                elapsed = time.monotonic() - cycle_start
+                remaining = interval - elapsed
+                if remaining > 0:
+                    await asyncio.sleep(remaining)
         except _STREAM_CLOSED:
             pass
+        finally:
+            await camera.notify_stream_stop()
 
         fps_counters["still"] = 0.0
         return response
@@ -124,7 +133,7 @@ def create_camera_routes(config: ConfigManager, components: dict) -> list[web.Ro
         if camera is None:
             return web.json_response({"error": "No event camera available"}, status=503)
 
-        fps = config.get("webserver.camera_fps", 2)
+        fps = config.get("webserver.camera_fps", 10)
         interval = 1.0 / max(fps, 1)
 
         response = web.StreamResponse(
@@ -136,11 +145,14 @@ def create_camera_routes(config: ConfigManager, components: dict) -> list[web.Ro
         )
         await response.prepare(request)
 
+        await camera.notify_stream_start(fps)
         try:
             last_time = time.monotonic()
             while not _is_shutting_down():
+                cycle_start = time.monotonic()
+
                 try:
-                    image_bytes = await camera.capture_jpeg()
+                    image_bytes = await camera.get_cached_jpeg()
                 except Exception:
                     logger.exception("Event stream capture failed")
                     break
@@ -161,9 +173,15 @@ def create_camera_routes(config: ConfigManager, components: dict) -> list[web.Ro
                 except _STREAM_CLOSED:
                     break
 
-                await asyncio.sleep(interval)
+                # Adaptive sleep: subtract time already spent capturing/writing
+                elapsed = time.monotonic() - cycle_start
+                remaining = interval - elapsed
+                if remaining > 0:
+                    await asyncio.sleep(remaining)
         except _STREAM_CLOSED:
             pass
+        finally:
+            await camera.notify_stream_stop()
 
         fps_counters["event"] = 0.0
         return response
@@ -174,7 +192,7 @@ def create_camera_routes(config: ConfigManager, components: dict) -> list[web.Ro
     async def camera_info(request: web.Request) -> web.Response:
         still_type = config.get("still_camera.type", "unknown")
         event_type = config.get("event_camera.type", "unknown")
-        target_fps = config.get("webserver.camera_fps", 2)
+        target_fps = config.get("webserver.camera_fps", 10)
 
         return web.json_response({
             "still_camera": {
