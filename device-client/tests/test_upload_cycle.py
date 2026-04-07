@@ -7,6 +7,7 @@ from bugsi_daemon.config import ConfigManager
 from bugsi_daemon.core.power_manager import PowerManager, PowerMode
 from bugsi_daemon.core.telemetry_collector import TelemetryCollector
 from bugsi_daemon.core.upload_cycle import UploadCycle
+from bugsi_daemon.hardware_mock.climate import MockClimate
 from bugsi_daemon.hardware_mock.wlan import MockWlan
 from bugsi_daemon.net.client import BugsiClient
 
@@ -264,3 +265,99 @@ class TestUploadCycle:
         assert not mock_hardware["lte"].is_powered()
 
         client.close()
+
+
+@pytest.mark.asyncio
+class TestTelemetryClimatePower:
+    """Tests for climate sensor power management during telemetry collection."""
+
+    async def test_telemetry_powers_on_climate_for_reading(self, buffer_store, mock_hardware, config_manager):
+        """Climate sensor should be powered on before reading and powered off after."""
+        for sensor in mock_hardware.values():
+            if hasattr(sensor, "initialize"):
+                await sensor.initialize()
+
+        climate = mock_hardware["climate"]
+        # Simulate climate being powered off (e.g. after image pipeline capture)
+        await climate.power_off()
+        assert not climate.is_powered()
+        assert not climate.is_healthy()
+
+        telemetry = TelemetryCollector(
+            buffer=buffer_store,
+            battery=mock_hardware["battery"],
+            solar=mock_hardware["solar"],
+            climate=climate,
+            storage=mock_hardware["storage"],
+            system=mock_hardware["system"],
+            lte=mock_hardware["lte"],
+        )
+
+        reading = await telemetry.collect()
+
+        # Temperature and humidity should be present
+        assert "temperature" in reading
+        assert "humidity" in reading
+        assert reading["temperature"] is not None
+        assert reading["humidity"] is not None
+
+        # Climate should be powered off again after collection
+        assert not climate.is_powered()
+
+    async def test_telemetry_skips_power_if_already_powered(self, buffer_store, mock_hardware, config_manager):
+        """If climate is already powered, don't power off after reading."""
+        for sensor in mock_hardware.values():
+            if hasattr(sensor, "initialize"):
+                await sensor.initialize()
+
+        climate = mock_hardware["climate"]
+        # Climate is already powered after initialize()
+        assert climate.is_powered()
+
+        telemetry = TelemetryCollector(
+            buffer=buffer_store,
+            battery=mock_hardware["battery"],
+            solar=mock_hardware["solar"],
+            climate=climate,
+            storage=mock_hardware["storage"],
+            system=mock_hardware["system"],
+            lte=mock_hardware["lte"],
+        )
+
+        reading = await telemetry.collect()
+
+        assert "temperature" in reading
+        assert "humidity" in reading
+        # Should still be powered (we didn't power it on, so we don't power it off)
+        assert climate.is_powered()
+
+    async def test_telemetry_climate_failure_does_not_crash(self, buffer_store, mock_hardware, config_manager):
+        """Other telemetry should still be collected if climate sensor fails."""
+        for sensor in mock_hardware.values():
+            if hasattr(sensor, "initialize"):
+                await sensor.initialize()
+
+        # Use a climate sensor that raises on power_on
+        class FailingClimate(MockClimate):
+            async def power_on(self):
+                raise RuntimeError("USB dongle not found")
+
+        climate = FailingClimate()
+        # Don't initialize — stays unhealthy/unpowered
+
+        telemetry = TelemetryCollector(
+            buffer=buffer_store,
+            battery=mock_hardware["battery"],
+            solar=mock_hardware["solar"],
+            climate=climate,
+            storage=mock_hardware["storage"],
+            system=mock_hardware["system"],
+            lte=mock_hardware["lte"],
+        )
+
+        reading = await telemetry.collect()
+
+        # Climate data should be missing, but other data should be present
+        assert "temperature" not in reading
+        assert "battery_voltage" in reading
+        assert "timestamp" in reading

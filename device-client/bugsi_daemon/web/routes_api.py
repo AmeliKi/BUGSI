@@ -262,6 +262,10 @@ def create_api_routes(config: ConfigManager, components: dict) -> list[web.Route
         if wlan:
             status["wlan_enabled"] = wlan.is_enabled()
 
+        wlan_manager = components.get("wlan_manager")
+        if wlan_manager:
+            status["ap_mode"] = wlan_manager.ap_mode
+
         return web.json_response(status)
 
     @routes.post("/api/restart")

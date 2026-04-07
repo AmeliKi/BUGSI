@@ -103,6 +103,7 @@ def config_manager(tmp_path, monkeypatch):
             "max_batch_size": 100,
             "battery_soc_threshold": 20,
             "ota_check_enabled": True,
+            "capture_image": False,
         },
         "power": {
             "night_mode_enabled": True,

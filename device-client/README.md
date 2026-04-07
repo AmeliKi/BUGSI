@@ -233,6 +233,47 @@ sudo systemctl status bugsi-daemon
 sudo journalctl -u bugsi-daemon -f
 ```
 
+### WiFi Access Point (AP) Fallback
+
+The daemon automatically manages WiFi connectivity. On boot it tries to connect to known WiFi networks. If no known network is available, it starts a WiFi hotspot so you can connect directly to the device.
+
+**Automatic behavior (default):**
+1. Boot → wait for NetworkManager to connect to a known WiFi (~10s)
+2. If connected → normal client mode, web UI at `http://<device-ip>:8080`
+3. If not connected → start AP hotspot, web UI at `http://10.42.0.1:8080`
+4. While in AP mode → re-check for known networks every 5 minutes
+
+Configure in `config/default.json`:
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `wifi.ap_fallback_enabled` | `true` | Enable automatic AP fallback |
+| `wifi.ap_ssid` | `"BUGSI-Setup"` | Hotspot network name |
+| `wifi.ap_password` | `"bugsi1234"` | Hotspot WPA2 password (min 8 chars) |
+| `wifi.ap_recheck_interval_minutes` | `5` | How often to scan for known networks while in AP mode |
+
+**Manual AP mode (via nmcli):**
+
+```bash
+# Start hotspot manually
+sudo nmcli device wifi hotspot ifname wlan0 ssid "BUGSI-Setup" password "bugsi1234"
+
+# Disable auto-connect to known networks
+nmcli -t -f NAME,TYPE connection show | grep wireless
+sudo nmcli connection modify "YourHomeWiFi" connection.autoconnect no
+
+# Stop hotspot and reconnect to known WiFi
+sudo nmcli connection down Hotspot
+sudo nmcli connection modify "YourHomeWiFi" connection.autoconnect yes
+sudo nmcli device wifi connect "YourHomeWiFi"
+
+# Make hotspot survive reboots
+sudo nmcli connection modify Hotspot connection.autoconnect yes connection.autoconnect-priority 100
+
+# Check current state
+nmcli connection show --active
+```
+
 ## Testing on Real Hardware
 
 The `test-hardware` command lets you test individual subsystems without running the full daemon.
@@ -458,6 +499,10 @@ Configuration is managed remotely via the SaaS backend. The device polls for upd
 | `webserver.port` | 8080 | Web server port |
 | `webserver.camera_fps` | 2 | Live stream frames per second |
 | `webserver.detections_dir` | /mnt/usb/bugsi/detections | Directory for detection images |
+| `wifi.ap_fallback_enabled` | true | Enable automatic AP fallback when no known WiFi |
+| `wifi.ap_ssid` | "BUGSI-Setup" | Hotspot network name |
+| `wifi.ap_password` | "bugsi1234" | Hotspot WPA2 password (min 8 chars) |
+| `wifi.ap_recheck_interval_minutes` | 5 | How often to scan for known networks in AP mode |
 
 ## Architecture
 

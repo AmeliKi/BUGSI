@@ -440,6 +440,7 @@ async def init_components(config: ConfigManager, mock: bool) -> dict:
                     "web_camera": web_camera,
                     "web_event_camera": web_event_camera,
                     "wlan": hw["wlan"],
+                    "wlan_manager": wlan_manager,
                     "hw": hw,
                     "image_pipeline": image_pipeline,
                     "mock": mock,
@@ -473,10 +474,140 @@ async def cmd_telemetry(config: ConfigManager, mock: bool) -> None:
         components["client"].close()
 
 
-async def cmd_upload(config: ConfigManager, mock: bool) -> None:
+async def _init_upload_components(config: ConfigManager, mock: bool) -> dict:
+    """Lightweight init for upload: only telemetry sensors + upload infra.
+
+    Skips cameras, webserver, and image pipeline to avoid conflicting
+    with a running daemon that already holds those resources.
+    """
+    fallbacks = _mock_fallbacks()
+
+    if mock:
+        hw = {name: cls() for name, cls in fallbacks.items()}
+    else:
+        from bugsi_daemon.hardware.battery import VictronSmartShunt
+        from bugsi_daemon.hardware.solar import VictronSmartSolar
+        from bugsi_daemon.hardware.climate import ZigbeeClimateSensor
+        from bugsi_daemon.hardware.lte import SixfabLteModem
+        from bugsi_daemon.hardware.storage import UsbStorageMonitor
+        from bugsi_daemon.hardware.system import SystemMonitor
+        from bugsi_daemon.hardware.power_mgmt import WittyPiPowerManager
+        from bugsi_daemon.hardware.wlan import SystemWlan
+
+        hw = {
+            "battery": VictronSmartShunt(),
+            "solar": VictronSmartSolar(),
+            "climate": ZigbeeClimateSensor(
+                serial_port=config.get("zigbee.serial_port", "auto"),
+                adapter=config.get("zigbee.adapter", "ezsp"),
+                device_name=config.get("zigbee.device_name", "climate_sensor"),
+                database_path=config.get("zigbee.database_path", "/var/cache/bugsi/zigbee.db"),
+                network_channel=config.get("zigbee.network_channel", 11),
+                usb_hub=config.get("zigbee.usb_hub"),
+                usb_port=config.get("zigbee.usb_port"),
+            ),
+            "lte": SixfabLteModem(
+                serial_port=config.get("lte.serial_port"),
+                gpio_pin=config.get("lte.gpio_pin", 26),
+            ),
+            "storage": UsbStorageMonitor(),
+            "system": SystemMonitor(),
+            "power_mgmt": WittyPiPowerManager(),
+            "wlan": SystemWlan(),
+        }
+
+    # Initialize sensors, falling back to mock on NotImplementedError
+    for name, sensor in list(hw.items()):
+        if hasattr(sensor, "initialize"):
+            try:
+                await sensor.initialize()
+            except NotImplementedError:
+                logger.warning("%s: real driver not implemented, using mock", name)
+                hw[name] = fallbacks[name]()
+                await hw[name].initialize()
+
+    # Buffer
+    db_path = config.get("storage.buffer_db_path", "/tmp/bugsi_buffer.db")
+    db_dir = os.path.dirname(db_path)
+    if db_dir and not os.path.exists(db_dir):
+        import tempfile
+        db_path = os.path.join(tempfile.gettempdir(), "bugsi_buffer.db")
+    buffer = BufferStore(db_path)
+    await buffer.initialize()
+
+    # Backup
+    backup_path = config.get("storage.backup_path", "/tmp/bugsi_backup/")
+    backup_dir = os.path.dirname(backup_path.rstrip("/"))
+    if backup_dir and not os.path.exists(backup_dir):
+        import tempfile
+        backup_path = os.path.join(tempfile.gettempdir(), "bugsi_backup")
+    backup = BufferBackup(db_path, backup_path)
+
+    client = BugsiClient(config.api_url, config.api_key)
+
+    telemetry = TelemetryCollector(
+        buffer=buffer,
+        battery=hw["battery"],
+        solar=hw["solar"],
+        climate=hw["climate"],
+        storage=hw["storage"],
+        system=hw["system"],
+        lte=hw["lte"],
+    )
+
+    power_manager = PowerManager(
+        config=config,
+        lte=hw["lte"],
+        power_mgmt=hw["power_mgmt"],
+        backup=backup,
+        wlan=hw.get("wlan"),
+    )
+
+    upload = UploadCycle(
+        client=client,
+        buffer=buffer,
+        config=config,
+        power_manager=power_manager,
+        telemetry_collector=telemetry,
+        wlan=hw.get("wlan"),
+    )
+
+    return {
+        "hw": hw,
+        "buffer": buffer,
+        "client": client,
+        "telemetry": telemetry,
+        "upload": upload,
+    }
+
+
+async def cmd_upload(config: ConfigManager, mock: bool, capture_image: bool = False) -> None:
     """Run one upload cycle immediately."""
-    components = await init_components(config, mock)
+    should_capture = capture_image or config.get("upload.capture_image", False)
+
+    if should_capture:
+        # Full init needed for cameras + image pipeline
+        components = await init_components(config, mock)
+    else:
+        # Lightweight init: only telemetry sensors + upload infra
+        components = await _init_upload_components(config, mock)
+
     try:
+        # Capture a fresh image if requested
+        image_pipeline = components.get("image_pipeline")
+        if should_capture and image_pipeline is not None:
+            print("Capturing fresh image...")
+            try:
+                await image_pipeline._capture_sequence()
+                print(f"Image captured successfully (total: {image_pipeline.pictures_taken})")
+            except Exception as e:
+                print(f"Image capture failed: {e}")
+                print("Hint: stop the daemon first if it is running (sudo systemctl stop bugsi)")
+                logger.exception("Image capture failed during upload command")
+        elif should_capture and image_pipeline is None:
+            print("Warning: --capture-image requested but image pipeline is not enabled")
+            print("Set image_capture.enabled=true in config to enable image capture")
+
         # Generate a mock thumbnail (guaranteed for one-shot upload)
         thumbnail_gen = components.get("thumbnail_generator")
         if thumbnail_gen:
@@ -484,7 +615,9 @@ async def cmd_upload(config: ConfigManager, mock: bool) -> None:
 
         # Collect telemetry (includes pictures_taken count)
         extra = {}
-        if thumbnail_gen:
+        if image_pipeline is not None:
+            extra["pictures_taken"] = image_pipeline.pictures_taken
+        elif thumbnail_gen:
             extra["pictures_taken"] = thumbnail_gen.pictures_taken
         reading = await components["telemetry"].collect(extra=extra)
         soc = reading.get("battery_soc")

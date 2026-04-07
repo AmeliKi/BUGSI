@@ -51,7 +51,8 @@
     "interval_minutes": 60,
     "max_batch_size": 100,
     "battery_soc_threshold": 20,
-    "ota_check_enabled": true
+    "ota_check_enabled": true,
+    "capture_image": false
   },
   "power": {
     "night_mode_enabled": true,
@@ -90,5 +91,12 @@
     "camera_fps": 10,
     "stream_width": 960,
     "detections_dir": "/mnt/usb/bugsi/detections"
+  },
+  "wifi": {
+    "ap_fallback_enabled": true,
+    "ap_ssid": "BUGSI-Setup",
+    "ap_password": "bugsi1234",
+    "ap_recheck_interval_minutes": 5,
+    "ap_connect_wait_seconds": 10
   }
 }

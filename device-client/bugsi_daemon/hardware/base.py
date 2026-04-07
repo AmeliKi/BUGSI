@@ -115,6 +115,22 @@ class WlanInterface(ABC):
     async def has_internet(self) -> bool:
         """Return True if WLAN is connected and has internet access."""
 
+    @abstractmethod
+    async def is_connected(self) -> bool:
+        """Return True if connected to an infrastructure WiFi network."""
+
+    @abstractmethod
+    async def start_hotspot(self, ssid: str, password: str) -> bool:
+        """Start a WiFi AP hotspot. Returns True on success."""
+
+    @abstractmethod
+    async def stop_hotspot(self) -> None:
+        """Stop the WiFi AP hotspot, if active."""
+
+    @abstractmethod
+    async def is_hotspot_active(self) -> bool:
+        """Return True if a hotspot is currently active."""
+
 
 # --- Camera interfaces ---
 

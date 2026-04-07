@@ -45,7 +45,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("run", help="Start the daemon", parents=[shared])
     subparsers.add_parser("telemetry", help="Collect and print one telemetry reading", parents=[shared])
-    subparsers.add_parser("upload", help="Run one upload cycle immediately", parents=[shared])
+    upload_parser = subparsers.add_parser("upload", help="Run one upload cycle immediately", parents=[shared])
+    upload_parser.add_argument(
+        "--capture-image", action="store_true", default=False,
+        help="Capture a fresh image before uploading (overrides upload.capture_image config)",
+    )
     subparsers.add_parser("status", help="Show buffer stats, config version, power mode", parents=[shared])
     subparsers.add_parser("config", help="Show current configuration", parents=[shared])
     subparsers.add_parser("config-pull", help="Fetch latest config from SaaS", parents=[shared])
@@ -163,7 +167,6 @@ def main() -> None:
 
     commands = {
         "telemetry": cli.cmd_telemetry,
-        "upload": cli.cmd_upload,
         "status": cli.cmd_status,
         "config": cli.cmd_config,
         "config-pull": cli.cmd_config_pull,
@@ -177,6 +180,15 @@ def main() -> None:
         asyncio.run(cli.cmd_test_hardware(config, mock, subsystem=args.subsystem))
     elif args.command == "pair-zigbee":
         asyncio.run(cli.cmd_pair_zigbee(config, mock, timeout=args.timeout, rename=args.rename))
+    elif args.command == "upload":
+        if not config.is_configured:
+            print(
+                "Error: API key/URL not configured. Use --api-key/--api-url, "
+                "set BUGSI_API_KEY/BUGSI_API_URL env vars, or create a credentials.json file.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        asyncio.run(cli.cmd_upload(config, mock, capture_image=args.capture_image))
     elif args.command in commands:
         if not config.is_configured:
             print(

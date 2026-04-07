@@ -171,7 +171,9 @@ class ImageCapturePipeline:
         for attempt in range(2):
             self._still_camera.open()
             try:
-                return self._still_camera.capture()
+                frame = self._still_camera.capture()
+                self._still_camera.close()
+                return frame
             except Exception:
                 logger.warning("Still capture attempt %d failed, re-opening camera", attempt + 1)
                 try:
