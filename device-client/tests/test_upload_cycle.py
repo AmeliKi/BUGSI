@@ -414,6 +414,78 @@ class TestUploadCycleApMode:
 
 
 @pytest.mark.asyncio
+class TestUploadCycleLocalNetwork:
+    """Tests for upload when server is reachable on local network without internet."""
+
+    async def _make_upload(self, buffer_store, mock_hardware, config_manager, tmp_path, wlan):
+        for sensor in mock_hardware.values():
+            if hasattr(sensor, "initialize"):
+                await sensor.initialize()
+
+        client = BugsiClient(config_manager.api_url, config_manager.api_key)
+        backup = BufferBackup(str(tmp_path / "buffer.db"), str(tmp_path / "backup"))
+
+        telemetry = TelemetryCollector(
+            buffer=buffer_store,
+            battery=mock_hardware["battery"],
+            solar=mock_hardware["solar"],
+            climate=mock_hardware["climate"],
+            storage=mock_hardware["storage"],
+            system=mock_hardware["system"],
+            lte=mock_hardware["lte"],
+        )
+
+        power_manager = PowerManager(
+            config=config_manager,
+            lte=mock_hardware["lte"],
+            power_mgmt=mock_hardware["power_mgmt"],
+            backup=backup,
+        )
+
+        upload = UploadCycle(
+            client=client,
+            buffer=buffer_store,
+            config=config_manager,
+            power_manager=power_manager,
+            telemetry_collector=telemetry,
+            wlan=wlan,
+        )
+        return upload, client
+
+    @respx.mock
+    async def test_server_reachable_on_local_network_skips_lte(
+        self, buffer_store, mock_hardware, config_manager, tmp_path
+    ):
+        """When server is reachable on same LAN (no internet, no hotspot), skip LTE."""
+        wlan = MockWlan(has_internet=False, server_reachable=True)
+
+        upload, client = await self._make_upload(
+            buffer_store, mock_hardware, config_manager, tmp_path, wlan
+        )
+
+        await buffer_store.push_telemetry(
+            {"timestamp": "2026-03-07T12:00:00Z", "battery_soc": 75.0}
+        )
+
+        respx.post("http://test:8000/api/device-data/telemetry").mock(
+            return_value=httpx.Response(201, json=[{"id": "abc"}])
+        )
+        respx.get("http://test:8000/api/device-data/config").mock(
+            return_value=httpx.Response(
+                200, json={"version": 1, "config": {}, "has_update": False}
+            )
+        )
+
+        success = await upload.run(last_battery_soc=80.0)
+        assert success
+
+        # LTE should never have been powered on
+        assert not mock_hardware["lte"].is_powered()
+
+        client.close()
+
+
+@pytest.mark.asyncio
 class TestTelemetryClimatePower:
     """Tests for climate sensor power management during telemetry collection."""
 

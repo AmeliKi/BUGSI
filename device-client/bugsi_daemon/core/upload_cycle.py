@@ -46,6 +46,7 @@ class UploadCycle:
         use_lte = True
         lte_route_ctx: LteRoute | None = None
         hotspot_active = self._wlan is not None and await self._wlan.is_hotspot_active()
+        server_host, server_port = resolve_server_host(self._client.base_url)
 
         try:
             if self._wlan and await self._wlan.has_internet():
@@ -53,46 +54,46 @@ class UploadCycle:
                 logger.info("WLAN has internet, skipping LTE")
                 use_lte = False
 
-            elif hotspot_active:
-                # Hotspot active — check if server is reachable on AP network
-                server_host, server_port = resolve_server_host(
-                    self._client.base_url
+            elif self._wlan and await self._wlan.can_reach_host(
+                server_host, server_port
+            ):
+                # Server directly reachable on current network (e.g. same LAN)
+                logger.info(
+                    "Server reachable on local network at %s:%d, skipping LTE",
+                    server_host, server_port,
                 )
-                if await self._wlan.can_reach_host(server_host, server_port):
-                    logger.info(
-                        "Server reachable via AP network at %s:%d, skipping LTE",
-                        server_host, server_port,
-                    )
-                    use_lte = False
-                else:
-                    # Server not on AP network — use LTE with explicit routing
-                    logger.info(
-                        "Hotspot active but server not reachable via AP, "
-                        "using LTE with routing fix"
-                    )
-                    await self._power_manager.set_mode(PowerMode.UPLOAD)
-                    if not await self._power_manager._lte.wait_for_network(
-                        timeout=60
-                    ):
-                        logger.error(
-                            "Upload skipped: LTE network registration timeout"
-                        )
-                        return False
-                    await self._telemetry.update_lte_signal()
+                use_lte = False
 
-                    # Force traffic to server through LTE interface
-                    lte_iface = (
-                        await self._power_manager._lte.get_network_interface()
+            elif hotspot_active:
+                # Hotspot active but server not reachable — use LTE with
+                # explicit routing so traffic bypasses the AP NAT.
+                logger.info(
+                    "Hotspot active but server not reachable via AP, "
+                    "using LTE with routing fix"
+                )
+                await self._power_manager.set_mode(PowerMode.UPLOAD)
+                if not await self._power_manager._lte.wait_for_network(
+                    timeout=60
+                ):
+                    logger.error(
+                        "Upload skipped: LTE network registration timeout"
                     )
-                    server_ip = resolve_ip(server_host)
-                    if lte_iface and server_ip:
-                        lte_route_ctx = LteRoute(server_ip, lte_iface)
-                        await lte_route_ctx.__aenter__()
-                    else:
-                        logger.warning(
-                            "Cannot set LTE route: lte_iface=%s, server_ip=%s",
-                            lte_iface, server_ip,
-                        )
+                    return False
+                await self._telemetry.update_lte_signal()
+
+                # Force traffic to server through LTE interface
+                lte_iface = (
+                    await self._power_manager._lte.get_network_interface()
+                )
+                server_ip = resolve_ip(server_host)
+                if lte_iface and server_ip:
+                    lte_route_ctx = LteRoute(server_ip, lte_iface)
+                    await lte_route_ctx.__aenter__()
+                else:
+                    logger.warning(
+                        "Cannot set LTE route: lte_iface=%s, server_ip=%s",
+                        lte_iface, server_ip,
+                    )
 
             else:
                 # No hotspot, no WLAN internet — standard LTE path
