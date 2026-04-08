@@ -147,6 +147,7 @@ class _TuyaClusterListener:
         self._cluster = cluster
         self._seq = 0
         self._data_received = False
+        self._query_pending = False
 
     def _next_seq(self) -> int:
         self._seq = (self._seq + 1) & 0xFFFF
@@ -173,8 +174,9 @@ class _TuyaClusterListener:
                 logger.info("Tuya 0xEF00: unhandled cmd=0x%02x", command_id)
 
             # Device is awake right now — opportunistically query DPs if needed
-            if not self._data_received:
-                asyncio.ensure_future(self._query_dp_values())
+            if not self._data_received and not self._query_pending:
+                self._query_pending = True
+                asyncio.ensure_future(self._guarded_query_dp())
         except Exception:
             logger.warning("Error parsing Tuya cluster command", exc_info=True)
 
@@ -199,9 +201,19 @@ class _TuyaClusterListener:
         except Exception:
             logger.debug("Failed to send Tuya time sync response", exc_info=True)
 
+    async def _guarded_query_dp(self) -> None:
+        """Run _query_dp_values and clear the pending flag when done."""
+        try:
+            await self._query_dp_values()
+        finally:
+            self._query_pending = False
+
     async def _query_dp_values(self) -> None:
         """Send DP query (cmd 0x03) to request the device to report all DPs."""
         if self._cluster is None:
+            return
+        # Guard against sending after the Zigbee app has been shut down
+        if self._sensor._powered and self._sensor._app is None:
             return
         try:
             seq = self._next_seq()
@@ -345,9 +357,12 @@ class _AppDeviceListener:
 
     _CLIMATE_CLUSTERS = {_CLUSTER_TEMPERATURE, _CLUSTER_HUMIDITY, _CLUSTER_POWER_CONFIG, _CLUSTER_TUYA}
 
+    _REJOIN_COOLDOWN = 5.0  # seconds between processing rejoins for same device
+
     def __init__(self, sensor: ZigbeeClimateSensor) -> None:
         self._sensor = sensor
         self._monitor_tasks: list[asyncio.Task] = []
+        self._last_join_time: dict[str, float] = {}
 
     def device_initialized(self, device, *, new: bool = True) -> None:
         """Called by zigpy when a device finishes its interview."""
@@ -358,8 +373,23 @@ class _AppDeviceListener:
 
     def device_joined(self, device) -> None:
         """Called by zigpy when a new device joins — start monitoring for clusters."""
+        import time as _time
+        ieee_str = str(device.ieee)
+        now = _time.monotonic()
+        last = self._last_join_time.get(ieee_str, 0.0)
+        if now - last < self._REJOIN_COOLDOWN:
+            logger.debug("Device %s rejoin debounced (%.1fs since last)", ieee_str, now - last)
+            return
+        self._last_join_time[ieee_str] = now
+
+        # Cancel any existing monitor task for this device
+        for task in self._monitor_tasks:
+            if not task.done() and getattr(task, '_device_ieee', None) == ieee_str:
+                task.cancel()
+
         logger.info("Device %s joined, monitoring for climate clusters...", device.ieee)
         task = asyncio.ensure_future(self._monitor_device(device))
+        task._device_ieee = ieee_str
         self._monitor_tasks.append(task)
 
     async def _monitor_device(self, device, poll_interval: float = 2.0, max_wait: float = 120.0) -> None:
@@ -514,8 +544,15 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
         if resolved_port == "auto":
             resolved_port = self._auto_detect_serial_port()
             if resolved_port is None:
-                logger.warning("Could not auto-detect Zigbee serial port, trying /dev/ttyUSB0")
-                resolved_port = "/dev/ttyUSB0"
+                logger.error(
+                    "Could not auto-detect Zigbee serial port; "
+                    "dongle not connected?"
+                )
+                self._healthy = False
+                self._powered = True  # USB hub was powered on
+                raise FileNotFoundError(
+                    "No Zigbee serial port detected (dongle not connected?)"
+                )
             else:
                 logger.info("Auto-detected Zigbee coordinator at %s", resolved_port)
 
@@ -831,6 +868,13 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
         if TransientConnectionError is not None:
             retryable = (OSError, TransientConnectionError)
 
+        # Fail fast if the serial device does not exist — avoids orphaned
+        # zigpy tasks from ControllerApplication.new() on a missing port.
+        if not Path(serial_port).exists():
+            raise FileNotFoundError(
+                f"Serial port {serial_port!r} does not exist"
+            )
+
         self._database_path.parent.mkdir(parents=True, exist_ok=True)
 
         zigpy_config = {
@@ -854,6 +898,9 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
                             self._network_channel, self._database_path)
                 return
             except retryable as exc:
+                # Port gone — retrying won't help and leaks zigpy tasks.
+                if isinstance(exc, FileNotFoundError):
+                    raise
                 last_exc = exc
                 if attempt < _ZIGPY_RETRY_MAX_ATTEMPTS:
                     logger.warning(
@@ -1202,9 +1249,14 @@ class ZigbeeClimateSensor(HardwareSensor, PowerControllable):
         )
         stdout, stderr = await proc.communicate()
         if proc.returncode != 0:
+            msg = stderr.decode().strip()
+            if action == "on":
+                raise OSError(
+                    f"uhubctl power on failed (rc={proc.returncode}): {msg}"
+                )
             logger.warning(
                 "uhubctl %s failed (rc=%d): %s",
-                action, proc.returncode, stderr.decode().strip(),
+                action, proc.returncode, msg,
             )
         else:
             logger.info("uhubctl USB power %s (hub %s port %s)", action, self._usb_hub, self._usb_port)

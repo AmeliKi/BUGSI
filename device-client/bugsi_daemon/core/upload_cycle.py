@@ -8,6 +8,7 @@ from bugsi_daemon.core.power_manager import PowerManager, PowerMode
 from bugsi_daemon.core.telemetry_collector import TelemetryCollector
 from bugsi_daemon.hardware.base import WlanInterface
 from bugsi_daemon.net.client import BugsiClient
+from bugsi_daemon.net.routing import LteRoute, resolve_ip, resolve_server_host
 
 logger = logging.getLogger(__name__)
 
@@ -43,21 +44,62 @@ class UploadCycle:
             return False
 
         use_lte = True
+        lte_route_ctx: LteRoute | None = None
+        hotspot_active = self._wlan is not None and await self._wlan.is_hotspot_active()
+
         try:
-            # Use WLAN if it already has internet, otherwise fall back to LTE
             if self._wlan and await self._wlan.has_internet():
+                # WLAN connected to infra network with internet
                 logger.info("WLAN has internet, skipping LTE")
                 use_lte = False
-            else:
-                # Power on LTE
-                await self._power_manager.set_mode(PowerMode.UPLOAD)
 
-                # Wait for network
+            elif hotspot_active:
+                # Hotspot active — check if server is reachable on AP network
+                server_host, server_port = resolve_server_host(
+                    self._client.base_url
+                )
+                if await self._wlan.can_reach_host(server_host, server_port):
+                    logger.info(
+                        "Server reachable via AP network at %s:%d, skipping LTE",
+                        server_host, server_port,
+                    )
+                    use_lte = False
+                else:
+                    # Server not on AP network — use LTE with explicit routing
+                    logger.info(
+                        "Hotspot active but server not reachable via AP, "
+                        "using LTE with routing fix"
+                    )
+                    await self._power_manager.set_mode(PowerMode.UPLOAD)
+                    if not await self._power_manager._lte.wait_for_network(
+                        timeout=60
+                    ):
+                        logger.error(
+                            "Upload skipped: LTE network registration timeout"
+                        )
+                        return False
+                    await self._telemetry.update_lte_signal()
+
+                    # Force traffic to server through LTE interface
+                    lte_iface = (
+                        await self._power_manager._lte.get_network_interface()
+                    )
+                    server_ip = resolve_ip(server_host)
+                    if lte_iface and server_ip:
+                        lte_route_ctx = LteRoute(server_ip, lte_iface)
+                        await lte_route_ctx.__aenter__()
+                    else:
+                        logger.warning(
+                            "Cannot set LTE route: lte_iface=%s, server_ip=%s",
+                            lte_iface, server_ip,
+                        )
+
+            else:
+                # No hotspot, no WLAN internet — standard LTE path
+                await self._power_manager.set_mode(PowerMode.UPLOAD)
                 if not await self._power_manager._lte.wait_for_network(timeout=60):
                     logger.error("Upload skipped: LTE network registration timeout")
                     return False
-
-                # Update LTE signal info
                 await self._telemetry.update_lte_signal()
 
             # OTA check first (priority over data upload)
@@ -88,6 +130,8 @@ class UploadCycle:
             logger.exception("Upload cycle failed")
             return False
         finally:
+            if lte_route_ctx is not None:
+                await lte_route_ctx.__aexit__(None, None, None)
             if use_lte:
                 await self._power_manager.set_mode(PowerMode.ACTIVE)
 

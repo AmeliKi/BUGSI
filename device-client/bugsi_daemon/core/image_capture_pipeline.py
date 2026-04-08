@@ -91,7 +91,15 @@ class ImageCapturePipeline:
         timestamp = datetime.now(timezone.utc)
         capture_id = uuid.uuid4().hex[:8]
 
-        # 1. Power on Zigbee FIRST (start warming up while we capture images)
+        # 1. Capture from still camera first — fails fast if the device is
+        #    locked by another process (e.g. the daemon), avoiding a wasted
+        #    Zigbee power cycle.
+        still_frame = self._capture_still()
+
+        # 2. Capture event frame from event camera
+        event_frame = await self._event_camera.capture_event_frame()
+
+        # 3. Power on Zigbee (start warming up while we save images)
         climate_powered = False
         if isinstance(self._climate, PowerControllable):
             try:
@@ -101,12 +109,6 @@ class ImageCapturePipeline:
                 logger.warning("Failed to power on Zigbee for capture")
 
         try:
-            # 2. Capture from still camera (open → capture → close)
-            still_frame = self._capture_still()
-
-            # 3. Capture event frame from event camera
-            event_frame = await self._event_camera.capture_event_frame()
-
             # 4. Save both full-resolution images
             still_path = self._save_image(still_frame, timestamp, capture_id, "still")
             event_path = self._save_image(event_frame, timestamp, capture_id, "event")

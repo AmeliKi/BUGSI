@@ -1,3 +1,5 @@
+from unittest.mock import AsyncMock, patch
+
 import httpx
 import pytest
 import respx
@@ -263,6 +265,150 @@ class TestUploadCycle:
 
         # LTE should have been powered on (then off in finally)
         assert not mock_hardware["lte"].is_powered()
+
+        client.close()
+
+
+@pytest.mark.asyncio
+class TestUploadCycleApMode:
+    """Tests for upload behaviour when the WiFi hotspot is active."""
+
+    async def _make_upload(self, buffer_store, mock_hardware, config_manager, tmp_path, wlan):
+        for sensor in mock_hardware.values():
+            if hasattr(sensor, "initialize"):
+                await sensor.initialize()
+
+        client = BugsiClient(config_manager.api_url, config_manager.api_key)
+        backup = BufferBackup(str(tmp_path / "buffer.db"), str(tmp_path / "backup"))
+
+        telemetry = TelemetryCollector(
+            buffer=buffer_store,
+            battery=mock_hardware["battery"],
+            solar=mock_hardware["solar"],
+            climate=mock_hardware["climate"],
+            storage=mock_hardware["storage"],
+            system=mock_hardware["system"],
+            lte=mock_hardware["lte"],
+        )
+
+        power_manager = PowerManager(
+            config=config_manager,
+            lte=mock_hardware["lte"],
+            power_mgmt=mock_hardware["power_mgmt"],
+            backup=backup,
+        )
+
+        upload = UploadCycle(
+            client=client,
+            buffer=buffer_store,
+            config=config_manager,
+            power_manager=power_manager,
+            telemetry_collector=telemetry,
+            wlan=wlan,
+        )
+        return upload, client
+
+    @respx.mock
+    async def test_hotspot_active_server_reachable_skips_lte(
+        self, buffer_store, mock_hardware, config_manager, tmp_path
+    ):
+        """When hotspot is active and server is reachable on AP network, skip LTE."""
+        wlan = MockWlan(has_internet=False, server_reachable=True)
+        await wlan.start_hotspot("BUGSI-Setup", "bugsi1234")
+
+        upload, client = await self._make_upload(
+            buffer_store, mock_hardware, config_manager, tmp_path, wlan
+        )
+
+        await buffer_store.push_telemetry(
+            {"timestamp": "2026-03-07T12:00:00Z", "battery_soc": 75.0}
+        )
+
+        respx.post("http://test:8000/api/device-data/telemetry").mock(
+            return_value=httpx.Response(201, json=[{"id": "abc"}])
+        )
+        respx.get("http://test:8000/api/device-data/config").mock(
+            return_value=httpx.Response(
+                200, json={"version": 1, "config": {}, "has_update": False}
+            )
+        )
+
+        success = await upload.run(last_battery_soc=80.0)
+        assert success
+
+        # LTE should never have been powered on
+        assert not mock_hardware["lte"].is_powered()
+
+        client.close()
+
+    @respx.mock
+    async def test_hotspot_active_server_not_reachable_uses_lte(
+        self, buffer_store, mock_hardware, config_manager, tmp_path
+    ):
+        """When hotspot is active but server unreachable, use LTE with routing fix."""
+        wlan = MockWlan(has_internet=False, server_reachable=False)
+        await wlan.start_hotspot("BUGSI-Setup", "bugsi1234")
+
+        upload, client = await self._make_upload(
+            buffer_store, mock_hardware, config_manager, tmp_path, wlan
+        )
+
+        await buffer_store.push_telemetry(
+            {"timestamp": "2026-03-07T12:00:00Z", "battery_soc": 75.0}
+        )
+
+        respx.post("http://test:8000/api/device-data/telemetry").mock(
+            return_value=httpx.Response(201, json=[{"id": "abc"}])
+        )
+        respx.get("http://test:8000/api/device-data/config").mock(
+            return_value=httpx.Response(
+                200, json={"version": 1, "config": {}, "has_update": False}
+            )
+        )
+
+        route_enter = AsyncMock(return_value=None)
+        route_exit = AsyncMock(return_value=None)
+
+        with patch(
+            "bugsi_daemon.core.upload_cycle.LteRoute"
+        ) as MockRoute, patch(
+            "bugsi_daemon.core.upload_cycle.resolve_ip", return_value="10.0.0.1"
+        ):
+            mock_route_inst = MockRoute.return_value
+            mock_route_inst.__aenter__ = route_enter
+            mock_route_inst.__aexit__ = route_exit
+
+            success = await upload.run(last_battery_soc=80.0)
+
+        assert success
+
+        # LTE should have been powered on (then off in finally)
+        assert not mock_hardware["lte"].is_powered()
+
+        # Route context manager should have been used
+        MockRoute.assert_called_once_with("10.0.0.1", "usb0")
+        route_enter.assert_awaited_once()
+        route_exit.assert_awaited_once()
+
+        client.close()
+
+    @respx.mock
+    async def test_hotspot_active_lte_registration_fails(
+        self, buffer_store, mock_hardware, config_manager, tmp_path
+    ):
+        """When hotspot is active, server unreachable, and LTE registration fails."""
+        wlan = MockWlan(has_internet=False, server_reachable=False)
+        await wlan.start_hotspot("BUGSI-Setup", "bugsi1234")
+
+        # Make LTE fail registration
+        mock_hardware["lte"].wait_for_network = AsyncMock(return_value=False)
+
+        upload, client = await self._make_upload(
+            buffer_store, mock_hardware, config_manager, tmp_path, wlan
+        )
+
+        success = await upload.run(last_battery_soc=80.0)
+        assert not success
 
         client.close()
 

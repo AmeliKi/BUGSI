@@ -86,7 +86,7 @@ class TestPowerOn:
 
                         mock_start.assert_called_once_with("/dev/serial/by-id/usb-Sonoff-Zigbee")
 
-    async def test_fallback_to_ttyUSB0_when_no_detection(self):
+    async def test_raises_when_auto_detect_returns_none(self):
         sensor = _make_sensor(serial_port="auto")
 
         with patch.object(sensor, "_uhubctl_power", AsyncMock()):
@@ -96,10 +96,23 @@ class TestPowerOn:
                     "_auto_detect_serial_port",
                     return_value=None,
                 ):
-                    with patch.object(sensor, "_start_zigpy", AsyncMock()) as mock_start:
+                    with pytest.raises(
+                        FileNotFoundError, match="No Zigbee serial port detected"
+                    ):
                         await sensor.power_on()
 
-                        mock_start.assert_called_once_with("/dev/ttyUSB0")
+        # USB hub was powered on, so _powered should be True
+        assert sensor.is_powered()
+        assert not sensor.is_healthy()
+
+    async def test_uhubctl_failure_raises_on_power_on(self):
+        sensor = _make_sensor(serial_port="auto")
+
+        with patch.object(
+            sensor, "_uhubctl_power", AsyncMock(side_effect=OSError("uhubctl failed"))
+        ):
+            with pytest.raises(OSError, match="uhubctl failed"):
+                await sensor.power_on()
 
 
 class _FakeTransientConnectionError(Exception):
@@ -138,6 +151,8 @@ class TestStartZigpy:
 
     async def test_calls_new_with_auto_form_true(self, tmp_path):
         sensor = _make_sensor(database_path=str(tmp_path / "zigbee.db"))
+        fake_port = tmp_path / "ttyUSB0"
+        fake_port.touch()
 
         mock_app = AsyncMock()
         mock_app.startup = AsyncMock()
@@ -145,7 +160,7 @@ class TestStartZigpy:
         MockCtrl.new = AsyncMock(return_value=mock_app)
 
         with _mock_bellows(MockCtrl):
-            await sensor._start_zigpy("/dev/ttyUSB0")
+            await sensor._start_zigpy(str(fake_port))
 
         MockCtrl.new.assert_called_once()
         _, kwargs = MockCtrl.new.call_args
@@ -160,21 +175,25 @@ class TestStartZigpy:
             database_path=str(db),
             network_channel=15,
         )
+        fake_port = tmp_path / "ttyUSB0"
+        fake_port.touch()
 
         mock_app = AsyncMock()
         MockCtrl = MagicMock()
         MockCtrl.new = AsyncMock(return_value=mock_app)
 
         with _mock_bellows(MockCtrl):
-            await sensor._start_zigpy("/dev/ttyUSB0")
+            await sensor._start_zigpy(str(fake_port))
 
         config_arg = MockCtrl.new.call_args[0][0]
         assert config_arg["database_path"] == str(db)
-        assert config_arg["device"]["path"] == "/dev/ttyUSB0"
+        assert config_arg["device"]["path"] == str(fake_port)
         assert config_arg["network"]["channel"] == 15
 
     async def test_retries_on_broken_pipe_error(self, tmp_path):
         sensor = _make_sensor(database_path=str(tmp_path / "zigbee.db"))
+        fake_port = tmp_path / "ttyUSB0"
+        fake_port.touch()
         mock_app = AsyncMock()
 
         call_count = 0
@@ -191,7 +210,7 @@ class TestStartZigpy:
 
         with _mock_bellows(MockCtrl):
             with patch("asyncio.sleep", AsyncMock()) as mock_sleep:
-                await sensor._start_zigpy("/dev/ttyUSB0")
+                await sensor._start_zigpy(str(fake_port))
 
         assert MockCtrl.new.call_count == 3
         assert mock_sleep.call_count == 2
@@ -201,6 +220,8 @@ class TestStartZigpy:
 
     async def test_retries_exhausted_raises(self, tmp_path):
         sensor = _make_sensor(database_path=str(tmp_path / "zigbee.db"))
+        fake_port = tmp_path / "ttyUSB0"
+        fake_port.touch()
 
         MockCtrl = MagicMock()
         MockCtrl.new = AsyncMock(side_effect=BrokenPipeError("Broken pipe"))
@@ -208,13 +229,15 @@ class TestStartZigpy:
         with _mock_bellows(MockCtrl):
             with patch("asyncio.sleep", AsyncMock()):
                 with pytest.raises(BrokenPipeError):
-                    await sensor._start_zigpy("/dev/ttyUSB0")
+                    await sensor._start_zigpy(str(fake_port))
 
         assert MockCtrl.new.call_count == 3
         assert sensor._app is None
 
     async def test_non_retryable_error_no_retry(self, tmp_path):
         sensor = _make_sensor(database_path=str(tmp_path / "zigbee.db"))
+        fake_port = tmp_path / "ttyUSB0"
+        fake_port.touch()
 
         MockCtrl = MagicMock()
         MockCtrl.new = AsyncMock(side_effect=ValueError("bad config"))
@@ -222,8 +245,41 @@ class TestStartZigpy:
         with _mock_bellows(MockCtrl):
             with patch("asyncio.sleep", AsyncMock()) as mock_sleep:
                 with pytest.raises(ValueError, match="bad config"):
-                    await sensor._start_zigpy("/dev/ttyUSB0")
+                    await sensor._start_zigpy(str(fake_port))
 
+        assert MockCtrl.new.call_count == 1
+        mock_sleep.assert_not_called()
+
+    async def test_fails_fast_on_missing_serial_port(self, tmp_path):
+        sensor = _make_sensor(database_path=str(tmp_path / "zigbee.db"))
+
+        MockCtrl = MagicMock()
+        MockCtrl.new = AsyncMock()
+
+        with _mock_bellows(MockCtrl):
+            with pytest.raises(FileNotFoundError, match="/dev/ttyNONEXISTENT"):
+                await sensor._start_zigpy("/dev/ttyNONEXISTENT")
+
+        # ControllerApplication.new() should never have been called
+        MockCtrl.new.assert_not_called()
+
+    async def test_no_retry_on_file_not_found(self, tmp_path):
+        """FileNotFoundError from ControllerApplication.new() must not retry."""
+        sensor = _make_sensor(database_path=str(tmp_path / "zigbee.db"))
+        fake_port = tmp_path / "ttyUSB0"
+        fake_port.touch()
+
+        MockCtrl = MagicMock()
+        MockCtrl.new = AsyncMock(
+            side_effect=FileNotFoundError("/dev/ttyUSB0")
+        )
+
+        with _mock_bellows(MockCtrl):
+            with patch("asyncio.sleep", AsyncMock()) as mock_sleep:
+                with pytest.raises(FileNotFoundError):
+                    await sensor._start_zigpy(str(fake_port))
+
+        # Should fail on the first attempt, no retries
         assert MockCtrl.new.call_count == 1
         mock_sleep.assert_not_called()
 

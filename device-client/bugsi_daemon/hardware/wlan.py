@@ -157,3 +157,16 @@ class SystemWlan(WlanInterface):
             return "bugsi-hotspot" in stdout.decode()
         except Exception:
             return False
+
+    async def can_reach_host(self, host: str, port: int, timeout: float = 3.0) -> bool:
+        """Check if a TCP connection to host:port succeeds."""
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection(host, port),
+                timeout=timeout,
+            )
+            writer.close()
+            await writer.wait_closed()
+            return True
+        except (OSError, asyncio.TimeoutError):
+            return False

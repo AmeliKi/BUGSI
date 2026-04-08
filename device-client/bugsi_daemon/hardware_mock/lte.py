@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import random
 
@@ -27,6 +29,11 @@ class MockLteModem(LteModemInterface):
         # Simulate network registration delay
         await asyncio.sleep(0.1)
         return True
+
+    async def get_network_interface(self) -> str | None:
+        if not self._powered:
+            return None
+        return "usb0"
 
     async def get_signal_info(self) -> dict:
         if not self._powered:

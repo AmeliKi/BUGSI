@@ -51,6 +51,10 @@ class LteModemInterface(PowerControllable, ABC):
     async def get_signal_info(self) -> dict:
         """Return {'lte_signal_strength': int, 'lte_signal_quality': int}."""
 
+    @abstractmethod
+    async def get_network_interface(self) -> str | None:
+        """Return the OS network interface name for the LTE data connection (e.g. 'usb0')."""
+
 
 class PowerManagementInterface(ABC):
     """Witty Pi 5 - RTC and power scheduling."""
@@ -130,6 +134,10 @@ class WlanInterface(ABC):
     @abstractmethod
     async def is_hotspot_active(self) -> bool:
         """Return True if a hotspot is currently active."""
+
+    @abstractmethod
+    async def can_reach_host(self, host: str, port: int, timeout: float = 3.0) -> bool:
+        """Return True if a TCP connection to host:port succeeds."""
 
 
 # --- Camera interfaces ---

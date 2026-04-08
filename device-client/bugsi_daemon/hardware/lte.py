@@ -123,9 +123,18 @@ class SixfabLteModem(LteModemInterface):
         self._active_port = await self._wait_for_serial_port()
         if self._active_port is None:
             logger.error(
-                "LTE modem serial port not found after %.0fs",
+                "LTE modem serial port not found after %.0fs, powering off",
                 MODEM_PORT_RETRY_TIMEOUT,
             )
+            # Clean up GPIO — don't leave the modem physically powered
+            import gpiod
+            if self._gpio_line is not None:
+                self._gpio_line.set_value(self._gpio_pin, gpiod.line.Value.INACTIVE)
+                self._gpio_line.release()
+                self._gpio_line = None
+            if self._gpio_chip is not None:
+                self._gpio_chip.close()
+                self._gpio_chip = None
             return
 
         # Open persistent serial connection
@@ -239,6 +248,22 @@ class SixfabLteModem(LteModemInterface):
 
         logger.error("LTE network registration timeout after %.0fs", timeout)
         return False
+
+    async def get_network_interface(self) -> str | None:
+        """Return the LTE modem's network interface name."""
+        if not self._powered:
+            return None
+        # The Quectel EG25-G USB modem uses usb0 on the Pi (ECM/RNDIS mode).
+        if os.path.exists("/sys/class/net/usb0"):
+            return "usb0"
+        # Fallback: scan for wwan interfaces
+        try:
+            for name in sorted(os.listdir("/sys/class/net")):
+                if name.startswith("wwan"):
+                    return name
+        except OSError:
+            pass
+        return None
 
     async def get_signal_info(self) -> dict:
         if not self._powered:
