@@ -1,6 +1,8 @@
 .claude
 .conductor
 
+*test.db
+
 # Created by https://www.toptal.com/developers/gitignore/api/visualstudiocode,python,react,node,windows,macos
 # Edit at https://www.toptal.com/developers/gitignore?templates=visualstudiocode,python,react,node,windows,macos
 
