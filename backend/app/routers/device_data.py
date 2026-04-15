@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
@@ -18,6 +19,10 @@ from app.services import config_service, onboard_service, ota_service, telemetry
 from app.telemetry import data_ingested_counter, upload_size_histogram
 
 router = APIRouter(prefix="/api/device-data", tags=["device-data"])
+
+ALLOWED_HEAVY_FILES = {
+    "ids-peak_2.20.0.0-408_arm64.tgz",
+}
 
 
 @router.post("/telemetry", response_model=list[TelemetryReadingOut], status_code=201)
@@ -121,6 +126,31 @@ async def report_ota_status(
     device: Device = Depends(get_device_from_api_key),
 ):
     await ota_service.update_deployment_status(db, deployment_id, data.status, data.error_message, device.id)
+
+
+@router.get("/files/{filename}")
+@limiter.limit("2/minute")
+async def download_heavy_file(
+    request: Request,
+    filename: str,
+    device: Device = Depends(get_device_from_api_key),
+):
+    if filename not in ALLOWED_HEAVY_FILES:
+        raise HTTPException(status_code=404, detail="File not found")
+    file_path = Path(settings.HEAVY_FILES_DIR) / filename
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=404,
+            detail=f"File '{filename}' is allowed but not yet available on this server. "
+                   f"Expected location: {file_path}",
+        )
+    from fastapi.responses import FileResponse
+
+    return FileResponse(
+        str(file_path),
+        media_type="application/octet-stream",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 @router.get("/onboard")

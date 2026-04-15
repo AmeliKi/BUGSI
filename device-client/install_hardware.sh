@@ -2,26 +2,70 @@
 # =============================================================================
 # BUGSI Hardware Install Script for Raspberry Pi 5 (Debian Trixie)
 #
-# Installs and configures:
-#   1. Prophesee GenX320 Event Camera (cam0)
-#   2. ArduCam 64MP Hawkeye (cam1)
+# Supports two camera configurations:
+#   A) IDS USB Event Camera + IDS RGB Camera      [default]
+#   B) Prophesee GenX320 Event Camera + ArduCam 64MP Hawkeye
+#
+# Common hardware (installed for both):
 #   3. Witty Pi 5 (Power Management + RTC)
-#   4. Zigbee2MQTT (as systemd service)
+#   4. Zigbee (zigpy + bellows)
 #   5. LTE Modem (Quectel, ECM mode)
 #   6. Network Priority (WLAN preferred over LTE)
 #
-# Usage: sudo ./install_hardware.sh
+# Usage: sudo ./install_hardware.sh [--config=A|B]
 # =============================================================================
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_TXT="/boot/firmware/config.txt"
 PROPHESEE_DIR="/opt/prophesee"
+HARDWARE_CONF="/etc/bugsi/hardware.conf"
+VENV_DIR="/opt/bugsi/venv"
+IDS_PEAK_DIR="/opt/ids/ids-peak_2.20.0.0-408_arm64"
+DOWNLOAD_CACHE="/opt/bugsi/downloads"
+
+# --- Parse flags -------------------------------------------------------------
+HW_CONFIG=""
+HW_PRESELECTED=false
+for arg in "$@"; do
+    case "$arg" in
+        --config=A|--config=a) HW_CONFIG="A"; HW_PRESELECTED=true ;;
+        --config=B|--config=b) HW_CONFIG="B"; HW_PRESELECTED=true ;;
+        --config=*) echo "Invalid --config value. Use --config=A or --config=B" >&2; exit 1 ;;
+    esac
+done
 
 # --- Helpers -----------------------------------------------------------------
 
 log()  { echo -e "\033[1;32m[BUGSI]\033[0m $*"; }
 warn() { echo -e "\033[1;33m[WARN]\033[0m $*"; }
 err()  { echo -e "\033[1;31m[ERROR]\033[0m $*" >&2; }
+
+ensure_venv() {
+    if [[ ! -d "$VENV_DIR" ]]; then
+        log "Creating Python venv at $VENV_DIR..."
+        mkdir -p "$(dirname "$VENV_DIR")"
+        python3 -m venv --system-site-packages "$VENV_DIR"
+    fi
+}
+
+download_heavy_file() {
+    local filename="$1" dest="$2"
+    local creds="/mnt/usb/bugsi/credentials.json"
+    if [[ ! -f "$creds" ]]; then
+        err "Credentials not found at $creds — cannot download $filename"
+        err "Either place the tarball at $dest manually or configure credentials"
+        exit 1
+    fi
+    local api_url api_key
+    api_url=$(python3 -c "import json; print(json.load(open('$creds'))['api_url'])")
+    api_key=$(python3 -c "import json; print(json.load(open('$creds'))['api_key'])")
+    mkdir -p "$(dirname "$dest")"
+    log "Downloading $filename from backend (this may take a while over LTE)..."
+    curl -fSL --retry 3 -H "X-API-Key: $api_key" \
+        "${api_url}/files/${filename}" -o "$dest"
+    log "Downloaded $filename ($(du -h "$dest" | cut -f1))"
+}
 
 sync_barrier() {
     local stage="$1"
@@ -91,21 +135,97 @@ log "=== BUGSI Hardware Install Script ==="
 log "Target: Raspberry Pi 5 — Debian Trixie"
 echo
 
+# --- Hardware configuration selection ----------------------------------------
+log "Which camera hardware should be installed?"
+echo
+echo "  A) IDS USB Event Camera + IDS RGB Camera  [default]"
+echo "  B) Prophesee GenX320 Event Camera + ArduCam 64MP Hawkeye"
+echo
+
+if [[ -f "$HARDWARE_CONF" ]]; then
+    PREV_CONFIG=$(grep -oP '^HW_CONFIG=\K.*' "$HARDWARE_CONF" 2>/dev/null || echo "")
+    if [[ -n "$PREV_CONFIG" ]]; then
+        log "Previously installed: Option ${PREV_CONFIG}"
+    fi
+fi
+
+if [[ "$HW_PRESELECTED" != true ]]; then
+    while true; do
+        read -r -p "[BUGSI] Select camera config (A/B) [A]: " HW_CHOICE < /dev/tty
+        HW_CHOICE="${HW_CHOICE:-A}"
+        case "${HW_CHOICE^^}" in
+            A) HW_CONFIG="A"; break ;;
+            B) HW_CONFIG="B"; break ;;
+            *) warn "Invalid choice '$HW_CHOICE' — enter A or B" ;;
+        esac
+    done
+fi
+
+log "Selected hardware configuration: Option $HW_CONFIG"
+echo
+
+# Persist the choice
+mkdir -p "$(dirname "$HARDWARE_CONF")"
+cat > "$HARDWARE_CONF" <<HWEOF
+# BUGSI Hardware Configuration — written by install_hardware.sh
+# Do not edit manually.
+HW_CONFIG=$HW_CONFIG
+INSTALL_DATE=$(date -Iseconds)
+HWEOF
+
+# --- Protect apt cache from SD card corruption ------------------------------
+# Route apt downloads through tmpfs (RAM) so corrupted .deb files on the
+# SD card can never break future installs.  Also clean any existing corrupt
+# cache entries before we start.
+log "Setting up tmpfs apt cache (SD card protection)..."
+APT_TMPDIR=$(mktemp -d /tmp/apt-cache.XXXXX)
+chmod 755 "$APT_TMPDIR"
+APT_OPTS="-o Dir::Cache::Archives=${APT_TMPDIR}"
+trap "rm -rf ${APT_TMPDIR}" EXIT
+apt-get clean
+log "apt cache redirected to ${APT_TMPDIR}"
+
 # --- Filesystem health check ------------------------------------------------
 log "Checking filesystem health..."
 ROOT_DEV=$(findmnt -n -o SOURCE / 2>/dev/null || echo "")
-if dmesg 2>/dev/null | grep -qi "ext4.*error"; then
-    warn "Existing EXT4 errors detected in kernel log!"
-    warn "Run 'sudo fsck.ext4 -p $ROOT_DEV' from recovery/initramfs before proceeding."
-    warn "Continuing with filesystem errors risks further corruption."
-    read -r -p "[BUGSI] Continue anyway? (y/N) " confirm
-    [[ "$confirm" =~ ^[Yy]$ ]] || { err "Aborted — fix filesystem first."; exit 1; }
-fi
+# if dmesg 2>/dev/null | grep -qi "ext4.*error"; then
+#     warn "Existing EXT4 errors detected in kernel log!"
+#     warn "Run 'sudo fsck.ext4 -p $ROOT_DEV' from recovery/initramfs before proceeding."
+#     warn "Continuing with filesystem errors risks further corruption."
+#     read -r -p "[BUGSI] Continue anyway? (y/N) " confirm
+#     [[ "$confirm" =~ ^[Yy]$ ]] || { err "Aborted — fix filesystem first."; exit 1; }
+# fi
 if mount | grep -q "on / .*ro[,)]"; then
     err "Root filesystem is mounted read-only — filesystem corruption likely."
     err "Boot into recovery and run: fsck.ext4 -p $ROOT_DEV"
     exit 1
 fi
+
+# --- Ensure WLAN preferred during install ------------------------------------
+# Steps below need internet (git clone, wget, apt). If LTE (usb0) has a lower
+# metric than WLAN but no connectivity, downloads will fail. Fix routing now;
+# section 6 installs the persistent service for boot-time.
+log "Setting network priority (WLAN > LTE) for install..."
+for pair in "wlan0:100" "usb0:600"; do
+    dev="${pair%%:*}"
+    metric="${pair##*:}"
+    if ! ip link show "$dev" &>/dev/null; then
+        log "$dev: interface not found — skipping"
+        continue
+    fi
+    route=$(ip route show dev "$dev" default 2>/dev/null | head -1)
+    if [[ -z "$route" ]]; then
+        log "$dev: no default route — skipping"
+        continue
+    fi
+    gw=$(echo "$route" | awk '{for(i=1;i<=NF;i++) if($i=="via") print $(i+1)}')
+    if [[ -z "$gw" ]]; then
+        log "$dev: could not parse gateway — skipping"
+        continue
+    fi
+    ip route replace default via "$gw" dev "$dev" metric "$metric" 2>/dev/null && \
+        log "$dev: metric set to $metric" || warn "$dev: failed to set metric"
+done
 
 # --- Preserve boot target ---------------------------------------------------
 # Record the current systemd default target before we install anything.
@@ -114,9 +234,10 @@ ORIGINAL_DEFAULT_TARGET=$(systemctl get-default 2>/dev/null || echo "")
 log "Current systemd default target: ${ORIGINAL_DEFAULT_TARGET:-unknown}"
 
 # =============================================================================
-# 1. Prophesee GenX320 Event Camera (cam0)
+# Camera Installation (dispatched by HW_CONFIG)
 # =============================================================================
 
+install_prophesee_genx320() {
 log "--- [1/6] Prophesee GenX320 Event Camera ---"
 
 # DKMS kernel drivers
@@ -127,8 +248,8 @@ else
     # can pull in kernel upgrades that make existing DKMS modules incompatible)
     log "Installing Prophesee dependencies..."
     apt-get update -qq
-    apt-get install -y "linux-headers-$(uname -r)" dkms
-    apt-get install -y \
+    apt-get $APT_OPTS install -y "linux-headers-$(uname -r)" dkms
+    apt-get $APT_OPTS install -y \
         build-essential cmake git wget curl \
         libboost-program-options-dev libboost-filesystem-dev libboost-system-dev libboost-thread-dev libboost-timer-dev \
         libopencv-dev \
@@ -184,6 +305,15 @@ else
     cmake --build . --config Release -- -j 4
     make install
     ldconfig
+
+    # Verify Python bindings are importable (venv uses --system-site-packages)
+    if python3 -c "from metavision_core.event_io import EventsIterator; print('OK')" 2>/dev/null; then
+        log "OpenEB Python bindings verified"
+    else
+        warn "OpenEB Python bindings not importable from system Python"
+        warn "The bugsi venv uses --system-site-packages, so ensure OpenEB's"
+        warn "Python packages are installed for $(python3 --version 2>&1)"
+    fi
 fi
 
 # Disable camera auto-detect (conflicts with manual overlays)
@@ -205,6 +335,9 @@ if [[ ! -f /etc/profile.d/prophesee.sh ]]; then
     cat > /etc/profile.d/prophesee.sh <<'ENVEOF'
 export PSEE_VAR_V4L2_BSIZE=1
 export V4L2_HEAP=vidbuf_cached
+# Suppress libcamera probe errors for the GenX320 (event cameras lack
+# the mandatory V4L2 controls that libcamera's PISP handler expects).
+export LIBCAMERA_LOG_LEVELS="*:WARN"
 ENVEOF
     chmod 644 /etc/profile.d/prophesee.sh
     log "Created /etc/profile.d/prophesee.sh"
@@ -214,15 +347,14 @@ fi
 
 sync_barrier "Prophesee GenX320"
 echo
+}
 
-# =============================================================================
-# 2. ArduCam 64MP Hawkeye (cam1)
-# =============================================================================
-
+install_arducam_64mp() {
 log "--- [2/6] ArduCam 64MP Hawkeye ---"
 
-if [[ -f /boot/firmware/overlays/arducam-64mp.dtbo ]] && grep -qF "dtoverlay=arducam-64mp" "$CONFIG_TXT" 2>/dev/null; then
-    log "ArduCam 64MP already configured — skipping"
+ARDUCAM_IPA="/usr/share/libcamera/ipa/rpi/pisp/arducam_64mp.json"
+if [[ -f /boot/firmware/overlays/arducam-64mp.dtbo ]] && grep -qE "^dtoverlay=arducam-64mp(,cam1)?$" "$CONFIG_TXT" 2>/dev/null && [[ -f "$ARDUCAM_IPA" ]]; then
+    log "ArduCam 64MP already configured (driver + IPA) — skipping"
 else
     log "Downloading ArduCam install script..."
     wget -qO /tmp/install_pivariety_pkgs.sh \
@@ -237,9 +369,15 @@ else
     log "Installing 64MP kernel driver..."
     /tmp/install_pivariety_pkgs.sh -p 64mp_pi_hawk_eye_kernel_driver
 
-    # cam1 is default for arducam-64mp overlay — only add if overlay file exists
+    log "Installing ArduCam libcamera IPA tuning file..."
+    /tmp/install_pivariety_pkgs.sh -p libcamera
+
+    # Explicit cam1 so libcamera's PISP handler only scans CSI port 1
+    # (GenX320 is on cam0 and must not be enumerated by libcamera).
+    # Clean up old entry without explicit port from earlier installs.
+    sed -i '/^dtoverlay=arducam-64mp$/d' "$CONFIG_TXT" 2>/dev/null || true
     if [[ -f /boot/firmware/overlays/arducam-64mp.dtbo ]]; then
-        ensure_config_line "dtoverlay=arducam-64mp"
+        ensure_config_line "dtoverlay=arducam-64mp,cam1"
     else
         warn "arducam-64mp.dtbo not found in /boot/firmware/overlays/ — skipping dtoverlay"
         warn "Re-run this script after ArduCam kernel driver installs successfully"
@@ -248,6 +386,241 @@ fi
 
 sync_barrier "ArduCam 64MP"
 echo
+}
+
+# =============================================================================
+# IDS USB Event Camera (OpenEB + uEye EVS Plugin)
+# =============================================================================
+
+install_ids_event_camera() {
+log "--- [1/6] IDS USB Event Camera (OpenEB + uEye EVS Plugin) ---"
+
+local OPENEB_SRC_DIR="${PROPHESEE_DIR}/openeb"
+local OPENEB_BUILD_DIR="${OPENEB_SRC_DIR}/build"
+local PATCH_DIR="${SCRIPT_DIR}/external/event-camera-driver"
+
+# Check if already built
+if [[ -f "${OPENEB_BUILD_DIR}/lib/libueye_evs_hal_plugin.so" ]]; then
+    log "IDS uEye EVS plugin already built — skipping"
+else
+    # --- Dependencies ---
+    log "Installing IDS event camera dependencies..."
+    apt-get update -qq
+    apt-get $APT_OPTS install -y apt-utils build-essential wget unzip curl git cmake
+    apt-get $APT_OPTS install -y \
+        libopencv-dev libboost-all-dev libusb-1.0-0-dev libprotobuf-dev protobuf-compiler
+    apt-get $APT_OPTS install -y \
+        libhdf5-dev hdf5-tools libglew-dev libglfw3-dev ffmpeg
+    apt-get $APT_OPTS install -y \
+        libboost-program-options-dev libboost-filesystem-dev \
+        libboost-system-dev libboost-thread-dev libboost-timer-dev \
+        libgles2-mesa-dev pybind11-dev
+    apt-get $APT_OPTS install -y python3.13-venv python3.13-dev
+
+    # --- Clone OpenEB 5.1.0 (skip if already present) ---
+    if [[ ! -d "${OPENEB_SRC_DIR}/.git" ]]; then
+        log "Cloning OpenEB 5.1.0..."
+        mkdir -p "$PROPHESEE_DIR"
+        git clone https://github.com/prophesee-ai/openeb.git \
+            --branch 5.1.0 --single-branch "$OPENEB_SRC_DIR"
+    else
+        log "OpenEB source already present at $OPENEB_SRC_DIR — skipping clone"
+    fi
+
+    # --- Reuse bugsi venv for pip installs ---
+    ensure_venv
+    export PYTHONNOUSERSITE=true
+    log "Installing OpenEB Python dependencies into venv at $VENV_DIR... (this may take a while)"
+    "$VENV_DIR/bin/pip" install pip --upgrade
+    # Only install Python packages needed for the HAL plugin build and
+    # basic event camera operation. Skip the full OpenEB requirements —
+    # they pull in heavy ML/science packages (torch, scikit-image, scipy,
+    # numba, etc.) that are slow to build on ARM and unnecessary here.
+    "$VENV_DIR/bin/pip" install --quiet \
+        numpy opencv-python-headless pybind11 pytest h5py
+
+    # --- pybind11 v2.11.0 ---
+    if ! python3 -c "import pybind11" 2>/dev/null; then
+        log "Building pybind11 v2.11.0..."
+        wget -qO /tmp/v2.11.0.zip \
+            https://github.com/pybind/pybind11/archive/v2.11.0.zip
+        unzip -qo /tmp/v2.11.0.zip -d /tmp
+        mkdir -p /tmp/pybind11-2.11.0/build && cd /tmp/pybind11-2.11.0/build
+        cmake .. -DPYBIND11_TEST=OFF
+        cmake --build . -j"$(nproc)"
+        cmake --build . --target install
+    fi
+
+    # --- OpenEB udev rules ---
+    log "Installing OpenEB udev rules..."
+    if ls "${OPENEB_SRC_DIR}/hal_psee_plugins/resources/rules/"*.rules 1>/dev/null 2>&1; then
+        cp "${OPENEB_SRC_DIR}/hal_psee_plugins/resources/rules/"*.rules /etc/udev/rules.d/
+        udevadm control --reload-rules
+        udevadm trigger
+    fi
+
+    # --- Apply IDS patch ---
+    log "Applying IDS uEye EVS patch..."
+    cd "$OPENEB_SRC_DIR"
+    if ! git diff --quiet 2>/dev/null; then
+        log "OpenEB tree already has modifications — skipping patch"
+    else
+        cp "${PATCH_DIR}/ueye_evs_plugin_openeb_5.0.0.patch" .
+        if ! git apply ueye_evs_plugin_openeb_5.0.0.patch; then
+            warn "Patch failed with strict mode, trying --ignore-space-change..."
+            if ! git apply --ignore-space-change ueye_evs_plugin_openeb_5.0.0.patch; then
+                err "IDS patch failed to apply to OpenEB 5.1.0"
+                err "Check ${PATCH_DIR}/ueye_evs_plugin_openeb_5.0.0_README.md"
+                exit 1
+            fi
+        fi
+        log "IDS patch applied successfully"
+    fi
+
+    # --- Build ---
+    log "Building OpenEB + uEye EVS plugin..."
+    mkdir -p "$OPENEB_BUILD_DIR" && cd "$OPENEB_BUILD_DIR"
+    cmake .. -DCMAKE_BUILD_TYPE=Release
+    # Build the full SDK (Python bindings need metavision_core etc.)
+    # then build the IDS HAL plugin specifically
+    cmake --build . -j"$(nproc)"
+    cmake --build . --target ueye_evs_hal_plugin -j"$(nproc)"
+    make install
+    ldconfig
+    log "OpenEB + uEye EVS plugin built and installed successfully"
+fi
+
+# --- Environment variables ---
+if [[ ! -f /etc/profile.d/ids-event-camera.sh ]]; then
+    log "Creating /etc/profile.d/ids-event-camera.sh..."
+    cat > /etc/profile.d/ids-event-camera.sh <<ENVEOF
+# IDS uEye EVS Event Camera — set by install_hardware.sh
+export LD_LIBRARY_PATH="${PROPHESEE_DIR}/openeb/build/lib:\${LD_LIBRARY_PATH:-}"
+export HDF5_PLUGIN_PATH="${PROPHESEE_DIR}/openeb/build/lib/hdf5/plugin:\${HDF5_PLUGIN_PATH:-}"
+export MV_HAL_PLUGIN_PATH="${PROPHESEE_DIR}/openeb/build/lib"
+export PYTHONPATH="${PROPHESEE_DIR}/openeb/build/py3:\${PYTHONPATH:-}"
+ENVEOF
+    chmod 644 /etc/profile.d/ids-event-camera.sh
+fi
+
+# Source for this script session
+export LD_LIBRARY_PATH="${PROPHESEE_DIR}/openeb/build/lib:${LD_LIBRARY_PATH:-}"
+export HDF5_PLUGIN_PATH="${PROPHESEE_DIR}/openeb/build/lib/hdf5/plugin:${HDF5_PLUGIN_PATH:-}"
+export MV_HAL_PLUGIN_PATH="${PROPHESEE_DIR}/openeb/build/lib"
+export PYTHONPATH="${PROPHESEE_DIR}/openeb/build/py3:${PYTHONPATH:-}"
+
+# --- ueye-evs-users group + udev rules ---
+if ! getent group ueye-evs-users >/dev/null 2>&1; then
+    log "Creating ueye-evs-users group..."
+    addgroup --system ueye-evs-users
+fi
+usermod -aG ueye-evs-users "${SUDO_USER:-$(logname)}" 2>/dev/null || true
+if id bugsi &>/dev/null; then
+    usermod -aG ueye-evs-users bugsi 2>/dev/null || true
+fi
+
+if [[ -f "${PATCH_DIR}/ueye_evs_plugin_openeb_5.0.0_udev.rules" ]]; then
+    cp "${PATCH_DIR}/ueye_evs_plugin_openeb_5.0.0_udev.rules" /etc/udev/rules.d/99-ueye_evs.rules
+    udevadm control --reload-rules
+    udevadm trigger
+    log "Installed IDS uEye EVS udev rules"
+fi
+
+# --- Disable unused plugins ---
+local PLUGIN_DIR="${PROPHESEE_DIR}/openeb/build/lib"
+mkdir -p "${PLUGIN_DIR}/disabled"
+for unused in libhal_evk4_sample_plugin.so libhal_toy_sample_plugin.so; do
+    if [[ -f "${PLUGIN_DIR}/${unused}" ]]; then
+        mv "${PLUGIN_DIR}/${unused}" "${PLUGIN_DIR}/disabled/"
+        log "Disabled unused plugin: $unused"
+    fi
+done
+
+sync_barrier "IDS USB Event Camera"
+echo
+}
+
+# =============================================================================
+# IDS RGB Camera (IDS Peak)
+# =============================================================================
+
+install_ids_rgb_camera() {
+log "--- [2/6] IDS RGB Camera (IDS Peak) ---"
+
+local TARBALL_NAME="ids-peak_2.20.0.0-408_arm64.tgz"
+local TARBALL="${DOWNLOAD_CACHE}/${TARBALL_NAME}"
+local TARBALL_LOCAL="${SCRIPT_DIR}/external/rgb-camera/${TARBALL_NAME}"
+
+# Skip if already installed (saves bandwidth on OTA re-runs)
+if [[ -d "$IDS_PEAK_DIR" ]]; then
+    log "IDS Peak already installed at $IDS_PEAK_DIR — skipping"
+else
+    # Locate tarball: persistent cache > bundled copy > download from backend
+    mkdir -p "$DOWNLOAD_CACHE"
+    if [[ -f "$TARBALL" ]]; then
+        log "Using cached tarball at $TARBALL"
+    elif [[ -f "$TARBALL_LOCAL" ]]; then
+        log "Copying bundled tarball to cache..."
+        cp "$TARBALL_LOCAL" "$TARBALL"
+    else
+        log "Tarball not found locally — downloading from backend..."
+        download_heavy_file "$TARBALL_NAME" "$TARBALL"
+    fi
+
+    log "Extracting IDS Peak driver..."
+    mkdir -p "$IDS_PEAK_DIR"
+    tar xzf "$TARBALL" -C "$IDS_PEAK_DIR" --strip-components=1
+    log "IDS Peak extracted to $IDS_PEAK_DIR"
+fi
+
+# Install Python bindings (order matters: ids_peak_common first)
+ensure_venv
+log "Installing IDS Peak Python bindings..."
+TMPDIR="/tmp" "$VENV_DIR/bin/pip" install --no-cache-dir --quiet \
+    ids_peak_common ids_peak_ipl ids_peak ids_peak_afl ids_peak_icv
+
+# --- Environment variables ---
+if [[ ! -f /etc/profile.d/ids-rgb-camera.sh ]]; then
+    log "Creating /etc/profile.d/ids-rgb-camera.sh..."
+    cat > /etc/profile.d/ids-rgb-camera.sh <<ENVEOF
+# IDS RGB Camera (IDS Peak) — set by install_hardware.sh
+export GENICAM_GENTL64_PATH="${IDS_PEAK_DIR}/lib/aarch64-linux-gnu/ids-peak/cti:\${GENICAM_GENTL64_PATH:-}"
+export LD_LIBRARY_PATH="${IDS_PEAK_DIR}/lib/aarch64-linux-gnu/ids-peak/lib:\${LD_LIBRARY_PATH:-}"
+ENVEOF
+    chmod 644 /etc/profile.d/ids-rgb-camera.sh
+fi
+
+# Source for this script session
+export GENICAM_GENTL64_PATH="${IDS_PEAK_DIR}/lib/aarch64-linux-gnu/ids-peak/cti:${GENICAM_GENTL64_PATH:-}"
+export LD_LIBRARY_PATH="${IDS_PEAK_DIR}/lib/aarch64-linux-gnu/ids-peak/lib:${LD_LIBRARY_PATH:-}"
+
+# --- udev rules for USB camera access without root ---
+local IDS_UDEV_SRC="${IDS_PEAK_DIR}/lib/udev/rules.d/99-ids-usb-access.rules"
+if [[ -f "$IDS_UDEV_SRC" ]] && [[ ! -f /etc/udev/rules.d/99-ids-usb-access.rules ]]; then
+    log "Installing IDS USB camera udev rules..."
+    cp "$IDS_UDEV_SRC" /etc/udev/rules.d/99-ids-usb-access.rules
+    udevadm control --reload-rules
+    udevadm trigger
+    log "Installed IDS USB udev rules — reattach camera for them to take effect"
+fi
+
+log "IDS RGB Camera — no dtoverlay needed (USB device)"
+
+sync_barrier "IDS RGB Camera"
+echo
+}
+
+# --- Camera dispatch ---------------------------------------------------------
+case "$HW_CONFIG" in
+    A)
+        install_ids_event_camera
+        install_ids_rgb_camera
+        ;;
+    B)
+        install_prophesee_genx320
+        install_arducam_64mp
+        ;;
+esac
 
 # =============================================================================
 # 3. Witty Pi 5 (Power Management + RTC)
@@ -266,7 +639,7 @@ else
     log "Downloading Witty Pi 5 package..."
     if wget -qO /tmp/wp5_latest.deb https://www.uugear.com/repo/WittyPi5/wp5_latest.deb && [[ -s /tmp/wp5_latest.deb ]]; then
         log "Installing Witty Pi 5..."
-        apt-get install -y /tmp/wp5_latest.deb
+        apt-get $APT_OPTS install -y /tmp/wp5_latest.deb
     else
         err "Failed to download Witty Pi 5 package — check network and URL"
         warn "URL: https://www.uugear.com/repo/WittyPi5/wp5_latest.deb"
@@ -277,97 +650,76 @@ sync_barrier "Witty Pi 5"
 echo
 
 # =============================================================================
-# 4. Zigbee2MQTT (as systemd service)
+# 4. Zigbee (zigpy + bellows — no Node.js, no MQTT broker)
 # =============================================================================
 
-log "--- [4/6] Zigbee2MQTT ---"
+log "--- [4/6] Zigbee (zigpy + bellows) ---"
 
-# --- Mosquitto (independent of Zigbee2MQTT install state) ---
-if ! dpkg -l mosquitto 2>/dev/null | grep -q "^ii"; then
-    log "Installing Mosquitto MQTT broker..."
-    apt-get install -y mosquitto mosquitto-clients
+# --- uhubctl (USB hub power control for Zigbee dongle) ---
+if ! command -v uhubctl &>/dev/null; then
+    log "Installing uhubctl (USB hub power control)..."
+    apt-get $APT_OPTS install -y uhubctl
 fi
 
-if [[ ! -f /etc/mosquitto/conf.d/bugsi.conf ]]; then
-    log "Creating Mosquitto config..."
-    mkdir -p /etc/mosquitto/conf.d
-    cat > /etc/mosquitto/conf.d/bugsi.conf <<'MQTTEOF'
-listener 1883
-allow_anonymous true
-MQTTEOF
+# --- zigpy + bellows are installed as Python deps via pyproject.toml ---
+# Ensure the bugsi venv has them (in case of standalone pip install)
+BUGSI_VENV="/opt/bugsi/venv"
+if [[ -d "$BUGSI_VENV" ]]; then
+    log "Ensuring zigpy + bellows are installed in bugsi venv..."
+    TMPDIR="/tmp" "$BUGSI_VENV/bin/pip" install --no-cache-dir --quiet zigpy bellows
+    sync
 fi
 
-systemctl enable mosquitto 2>/dev/null || true
-systemctl reset-failed mosquitto 2>/dev/null || true
-# Remove corrupted persistence DB if mosquitto fails to start
-if ! systemctl restart mosquitto 2>/dev/null; then
-    warn "Mosquitto failed to start — removing corrupted persistence DB and retrying..."
-    rm -f /var/lib/mosquitto/mosquitto.db
-    systemctl restart mosquitto
+# Ensure bugsi system user exists
+if ! id bugsi &>/dev/null; then
+    log "Creating bugsi system user..."
+    useradd --system --create-home --shell /usr/sbin/nologin bugsi
 fi
 
-# --- Zigbee2MQTT application ---
-if [[ -d /opt/zigbee2mqtt/node_modules ]]; then
-    log "Zigbee2MQTT already installed — skipping"
+# Create zigpy database and name map directory
+mkdir -p /var/cache/bugsi
+chown bugsi:bugsi /var/cache/bugsi
+
+# Add bugsi user to dialout group for serial port access
+usermod -aG dialout bugsi 2>/dev/null || true
+
+# Auto-detect serial port for informational purposes
+ZIGBEE_PORT=""
+for dev in /dev/serial/by-id/*Sonoff*Zigbee* /dev/serial/by-id/*10c4* /dev/ttyUSB0; do
+    if [[ -e "$dev" ]]; then
+        ZIGBEE_PORT="$dev"
+        break
+    fi
+done
+if [[ -n "$ZIGBEE_PORT" ]]; then
+    log "Detected Zigbee coordinator at $ZIGBEE_PORT"
 else
-    # Node.js (Debian package — avoids nodesource/npm conflicts)
-    if ! command -v node &>/dev/null; then
-        log "Installing Node.js..."
-        apt-get install -y nodejs npm
-    fi
-    apt-get install -y git make g++ gcc libsystemd-dev
-
-    # Install pnpm via npm (more reliable than corepack on Debian)
-    if ! command -v pnpm &>/dev/null; then
-        log "Installing pnpm..."
-        npm install -g pnpm
-    fi
-
-    # Clone and build
-    log "Cloning Zigbee2MQTT..."
-    mkdir -p /opt/zigbee2mqtt
-    chown -R "${SUDO_USER:-bugsi}": /opt/zigbee2mqtt
-    sudo -u "${SUDO_USER:-bugsi}" git clone --depth 1 \
-        https://github.com/Koenkk/zigbee2mqtt.git /opt/zigbee2mqtt
-
-    log "Installing Zigbee2MQTT dependencies (this may take a while)..."
-    cd /opt/zigbee2mqtt
-    sudo -u "${SUDO_USER:-bugsi}" pnpm install --frozen-lockfile
-
-    log "Building Zigbee2MQTT..."
-    sudo -u "${SUDO_USER:-bugsi}" pnpm build
+    log "No Zigbee coordinator detected (will auto-detect at runtime)"
 fi
 
-# --- Zigbee2MQTT systemd service (always ensure it exists and is enabled) ---
-if ! systemctl is-enabled zigbee2mqtt &>/dev/null; then
-    log "Creating Zigbee2MQTT systemd service..."
-    cat > /etc/systemd/system/zigbee2mqtt.service <<'SVCEOF'
-[Unit]
-Description=zigbee2mqtt
-After=network.target
-
-[Service]
-Environment=NODE_ENV=production
-Type=simple
-ExecStart=/usr/bin/node index.js
-WorkingDirectory=/opt/zigbee2mqtt
-StandardOutput=inherit
-StandardError=inherit
-Restart=always
-RestartSec=10s
-User=bugsi
-
-[Install]
-WantedBy=multi-user.target
-SVCEOF
-
+# --- Migration: remove old zigbee2mqtt + mosquitto if present ---
+if systemctl is-enabled zigbee2mqtt &>/dev/null; then
+    log "Removing old zigbee2mqtt service (replaced by zigpy)..."
+    systemctl stop zigbee2mqtt 2>/dev/null || true
+    systemctl disable zigbee2mqtt 2>/dev/null || true
+    rm -f /etc/systemd/system/zigbee2mqtt.service
     systemctl daemon-reload
-    systemctl enable zigbee2mqtt
-    systemctl start zigbee2mqtt
-    log "Zigbee2MQTT service enabled and started"
 fi
 
-sync_barrier "Zigbee2MQTT"
+if dpkg -l mosquitto 2>/dev/null | grep -q "^ii"; then
+    log "Removing Mosquitto (no longer needed for Zigbee)..."
+    systemctl stop mosquitto 2>/dev/null || true
+    systemctl disable mosquitto 2>/dev/null || true
+    apt-get $APT_OPTS remove -y mosquitto mosquitto-clients 2>/dev/null || true
+fi
+
+if [[ -d /opt/zigbee2mqtt ]]; then
+    log "Old zigbee2mqtt directory found at /opt/zigbee2mqtt"
+    warn "You can remove it manually: rm -rf /opt/zigbee2mqtt"
+    warn "Note: existing Zigbee devices will need to be re-paired with zigpy"
+fi
+
+sync_barrier "Zigbee (zigpy)"
 echo
 
 # =============================================================================
@@ -377,7 +729,7 @@ echo
 log "--- [5/6] LTE Modem (Quectel ECM) ---"
 
 # Install minicom for AT command access
-apt-get install -y minicom 2>/dev/null || true
+apt-get $APT_OPTS install -y minicom 2>/dev/null || true
 
 # Disable ModemManager (conflicts with ECM)
 if systemctl is-enabled ModemManager.service 2>/dev/null | grep -q "enabled"; then
@@ -656,28 +1008,63 @@ if [[ -n "$ORIGINAL_DEFAULT_TARGET" ]]; then
     fi
 fi
 
-log "=== Hardware installation complete ==="
+log "=== Hardware installation complete (Option $HW_CONFIG) ==="
 echo
 log "config.txt entries:"
-grep -E "^(dtoverlay=genx320|dtoverlay=arducam-64mp|dtparam=i2c_arm)" "$CONFIG_TXT" | while read -r line; do
-    echo "  $line"
-done
+if [[ "$HW_CONFIG" == "B" ]]; then
+    grep -E "^(dtoverlay=genx320|dtoverlay=arducam-64mp|dtparam=i2c_arm)" "$CONFIG_TXT" 2>/dev/null | while read -r line; do
+        echo "  $line"
+    done
+else
+    grep -E "^(dtparam=i2c_arm)" "$CONFIG_TXT" 2>/dev/null | while read -r line; do
+        echo "  $line"
+    done
+    echo "  (IDS cameras are USB — no dtoverlay entries)"
+fi
 echo
 log "Services enabled:"
-for svc in mosquitto zigbee2mqtt bugsi-network-priority; do
+for svc in bugsi-network-priority; do
     status=$(systemctl is-enabled "$svc" 2>/dev/null || echo "not found")
     echo "  $svc: $status"
 done
 echo
-warn "A REBOOT is required for dtoverlays and kernel modules to take effect."
+if [[ "$HW_CONFIG" == "A" ]]; then
+    echo
+    warn "=== IMPORTANT: Reattach cameras ==="
+    warn "Both IDS cameras must be physically disconnected and reconnected"
+    warn "for the new udev rules and driver to take effect."
+    echo
+    log "Steps:"
+    echo "  1. Unplug both USB cameras"
+    echo "  2. Wait 3 seconds"
+    echo "  3. Plug them back in"
+    echo
+    log "Then test the cameras with:"
+    echo "  source /etc/profile.d/ids-event-camera.sh"
+    echo "  source /etc/profile.d/ids-rgb-camera.sh"
+    echo "  $VENV_DIR/bin/python ${SCRIPT_DIR}/test_ids_event_camera.py"
+    echo "  $VENV_DIR/bin/python ${SCRIPT_DIR}/test_ids_rgb_camera.py"
+    echo
+    log "Test images will be saved to:"
+    echo "  /tmp/bugsi_event_camera_test.png"
+    echo "  /tmp/bugsi_rgb_camera_test.png"
+fi
+echo
+warn "A REBOOT is required for kernel modules to take effect."
 echo "  sudo reboot"
 echo
 log "After reboot, verify with:"
-echo "  dkms status                    # Prophesee drivers"
-echo "  rpicam-still --list-cameras    # ArduCam 64MP"
+if [[ "$HW_CONFIG" == "A" ]]; then
+    echo "  lsusb | grep 1409             # IDS event camera"
+    echo "  metavision_viewer              # IDS event camera test"
+    echo "  python3 -c 'import ids_peak'  # IDS RGB camera bindings"
+else
+    echo "  dkms status                    # Prophesee drivers"
+    echo "  rpicam-still --list-cameras    # ArduCam 64MP"
+fi
 echo "  wp5                            # Witty Pi 5"
-echo "  systemctl status zigbee2mqtt   # Zigbee2MQTT"
-echo "  systemctl status mosquitto     # MQTT broker"
+echo "  ls /dev/serial/by-id/*Zigbee*   # Zigbee coordinator"
+echo "  ls /var/cache/bugsi/           # zigpy database"
 echo "  ip addr show usb0             # LTE interface"
 echo "  ip route                       # Route metrics"
 echo

@@ -1,0 +1,153 @@
+diff --git a/hal_psee_plugins/lib/CMakeLists.txt b/hal_psee_plugins/lib/CMakeLists.txt
+index f2c8035..87084c5 100644
+--- a/hal_psee_plugins/lib/CMakeLists.txt
++++ b/hal_psee_plugins/lib/CMakeLists.txt
+@@ -6,6 +6,8 @@
+ # Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ # on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ # See the License for the specific language governing permissions and limitations under the License.
++#
++# Copyright (C) 2025, IDS Imaging Development Systems GmbH.
+ 
+ # Compile code that is used multiple times in object libraries :
+ 
+@@ -176,6 +178,7 @@ set(hal_psee_plugins_target_file_list)
+ 
+ set(plugin_list
+     hal_plugin_prophesee
++    ueye_evs_hal_plugin
+ )
+ 
+ if(BUILD_INTERNAL_PLUGINS)
+@@ -191,6 +194,7 @@ if(POLICY CMP0095)
+     cmake_policy(SET CMP0095 OLD)
+ endif (POLICY CMP0095)
+ 
++
+ foreach(plugin ${plugin_list})
+     # Declare the plugin as a shared library
+     add_library(${plugin} SHARED)
+@@ -214,6 +218,7 @@ foreach(plugin ${plugin_list})
+             ${biasgen_calib_files_dir}
+     )
+ 
++
+     if(NOT ${CMAKE_VERSION} VERSION_LESS "3.13.3" AND NOT APPLE AND NOT MSVC)
+         target_link_options(${plugin} PRIVATE "LINKER:-z,defs")
+     endif()
+@@ -300,6 +305,21 @@ if(BUILD_INTERNAL_PLUGINS)
+ 
+ endif(BUILD_INTERNAL_PLUGINS)
+ 
++set(my_plugin_list ueye_evs_hal_plugin)
++foreach(my_plugin ${my_plugin_list})
++    foreach(object ${lib_obj_list})
++        # Linkage with generic hal plugin object
++        target_sources(${my_plugin}
++            PRIVATE
++            $<TARGET_OBJECTS:${object}>
++        )
++        target_link_libraries(${my_plugin}
++            PRIVATE
++            ${object}
++        )
++    endforeach()
++endforeach()
++
+ if(EXISTS "${PROJECT_SOURCE_DIR}/licensing/LICENSE_METAVISION_SDK")
+     install(FILES
+                 ${PROJECT_SOURCE_DIR}/licensing/LICENSE_METAVISION_SDK
+diff --git a/hal_psee_plugins/src/plugin/CMakeLists.txt b/hal_psee_plugins/src/plugin/CMakeLists.txt
+index b1b5677..5f37f6a 100644
+--- a/hal_psee_plugins/src/plugin/CMakeLists.txt
++++ b/hal_psee_plugins/src/plugin/CMakeLists.txt
+@@ -6,11 +6,15 @@
+ # Unless required by applicable law or agreed to in writing, software distributed under the License is distributed
+ # on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ # See the License for the specific language governing permissions and limitations under the License.
++#
++# Copyright (C) 2025, IDS Imaging Development Systems GmbH.
+ 
+ target_sources(metavision_psee_hw_layer_obj PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/psee_plugin.cpp)
+ 
+ target_sources(hal_plugin_prophesee PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/psee_universal.cpp)
+ 
++target_sources(ueye_evs_hal_plugin PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ids_plugin.cpp)
++
+ if(HAS_V4L2)
+     target_compile_definitions(hal_plugin_prophesee PRIVATE HAS_V4L2)
+ endif(HAS_V4L2)
+diff --git a/hal_psee_plugins/src/plugin/ids_plugin.cpp b/hal_psee_plugins/src/plugin/ids_plugin.cpp
+new file mode 100644
+index 0000000..6889bf8
+--- /dev/null
++++ b/hal_psee_plugins/src/plugin/ids_plugin.cpp
+@@ -0,0 +1,68 @@
++/**********************************************************************************************************************
++ * Copyright (c) Prophesee S.A.                                                                                       *
++ *                                                                                                                    *
++ * Licensed under the Apache License, Version 2.0 (the "License");                                                    *
++ * you may not use this file except in compliance with the License.                                                   *
++ * You may obtain a copy of the License at http://www.apache.org/licenses/LICENSE-2.0                                 *
++ * Unless required by applicable law or agreed to in writing, software distributed under the License is distributed   *
++ * on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.                      *
++ * See the License for the specific language governing permissions and limitations under the License.                 *
++ **********************************************************************************************************************/
++
++/* Copyright (C) 2024, IDS Imaging Development Systems GmbH. */
++
++#include <functional>
++
++#include "metavision/hal/plugin/plugin.h"
++#include "metavision/hal/plugin/plugin_entrypoint.h"
++#include "plugin/psee_plugin.h"
++
++using namespace Metavision;
++
++struct PluginDiscovery {
++    static std::vector<std::function<void(Plugin &)>> plugin_discovery;
++    PluginDiscovery(std::function<void(Plugin &)> f) {
++        plugin_discovery.push_back(f);
++    }
++
++    static void discover(Plugin &plugin) {
++        for (const auto &f : plugin_discovery) {
++            f(plugin);
++        }
++    }
++};
++std::vector<std::function<void(Plugin &)>> PluginDiscovery::plugin_discovery;
++
++#if !defined(__ANDROID__) || defined(ANDROID_USES_LIBUSB)
++#include "boards/fx3/fx3_camera_discovery.h"
++#include "boards/treuzell/tz_camera_discovery.h"
++PluginDiscovery register_treuzell([](Plugin &plugin) {
++    auto tz_cam_discovery = std::make_unique<TzCameraDiscovery>();
++
++    // Register the known USB vendor ID, with the subclass used for Treuzell
++    tz_cam_discovery->add_usb_id(0x1409, 0x8E00, 0x19);
++
++    // Register live camera discoveries
++    auto &fx3_disc = plugin.add_camera_discovery(std::make_unique<Fx3CameraDiscovery>());
++    auto &tz_disc  = plugin.add_camera_discovery(std::move(tz_cam_discovery));
++});
++#endif // !defined(__ANDROID__) || defined(ANDROID_USES_LIBUSB)
++
++#if !defined(__ANDROID__) && defined(HAS_V4L2)
++#include "boards/v4l2/v4l2_camera_discovery.h"
++PluginDiscovery register_v4l2([](Plugin &plugin) {
++    auto &v4l2_disc = plugin.add_camera_discovery(std::make_unique<V4l2CameraDiscovery>());
++});
++#endif // HAS_V4L2
++
++#include "boards/rawfile/psee_file_discovery.h"
++PluginDiscovery register_psee_file([](Plugin &plugin) {
++    auto &file_disc = plugin.add_file_discovery(std::make_unique<PseeFileDiscovery>());
++});
++
++void initialize_plugin(void *plugin_ptr) {
++    Plugin &plugin = plugin_cast(plugin_ptr);
++    initialize_psee_plugin(plugin, "IDS Imaging Development Systems GmbH");
++    PluginDiscovery::discover(plugin);
++}
++

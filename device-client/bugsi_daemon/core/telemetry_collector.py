@@ -4,7 +4,7 @@ import logging
 from datetime import datetime, timezone
 
 from bugsi_daemon.buffer.store import BufferStore
-from bugsi_daemon.hardware.base import HardwareSensor, LteModemInterface
+from bugsi_daemon.hardware.base import HardwareSensor, LteModemInterface, PowerControllable
 
 logger = logging.getLogger(__name__)
 
@@ -44,8 +44,8 @@ class TelemetryCollector:
         # Solar (stored but not in telemetry schema yet)
         await self._safe_read(self._solar, "solar")
 
-        # Climate
-        reading.update(await self._safe_read(self._climate, "climate"))
+        # Climate (needs power management — Zigbee sensor must be powered on)
+        reading.update(await self._read_climate())
 
         # Storage
         reading.update(await self._safe_read(self._storage, "storage"))
@@ -76,6 +76,46 @@ class TelemetryCollector:
     def get_last_battery_soc(self) -> float | None:
         """Return the last known battery SoC for power management decisions."""
         return self._last_battery_soc
+
+    async def _read_climate(self) -> dict:
+        """Read climate sensor, powering on Zigbee if needed.
+
+        Sleepy Zigbee sensors (e.g. SNZB-02) only report every 30-60s,
+        so we wait up to 90s for data after powering on the coordinator.
+        If the serial port is locked (daemon running), we skip gracefully.
+        """
+        powered_on = False
+        try:
+            if isinstance(self._climate, PowerControllable) and not self._climate.is_powered():
+                try:
+                    await self._climate.power_on()
+                    powered_on = True
+                except Exception:
+                    logger.warning(
+                        "Could not power on climate sensor (serial port may be "
+                        "in use by the daemon). Skipping climate reading."
+                    )
+                    return {}
+                # Sleepy Zigbee devices need time to wake up and report
+                if hasattr(self._climate, "wait_for_reading"):
+                    reading = await self._climate.wait_for_reading(timeout=90)
+                    if reading:
+                        logger.info("Climate reading after wait: %s", reading)
+                    if reading and ("temperature" in reading or "humidity" in reading):
+                        return reading
+                    logger.warning(
+                        "Zigbee sensor did not report temperature within 90s"
+                    )
+            return await self._safe_read(self._climate, "climate")
+        except Exception:
+            logger.exception("Failed to read climate sensor")
+            return {}
+        finally:
+            if powered_on and isinstance(self._climate, PowerControllable):
+                try:
+                    await self._climate.power_off()
+                except Exception:
+                    logger.warning("Failed to power off climate sensor after read")
 
     async def _safe_read(self, sensor: HardwareSensor, name: str) -> dict:
         """Read a sensor, returning empty dict on failure."""

@@ -322,6 +322,72 @@ bugsi run --mock --verbose
 
 The `--verbose` / `-v` flag enables DEBUG level logging, which includes every HTTP request, WLAN timer resets, config saves, and camera events.
 
+## Changing the SaaS URL
+
+When deploying to a server (not localhost), you need to update the URL in several places:
+
+### 1. Frontend: onboard command URL
+
+Set `PUBLIC_SERVER_URL` in `.env` so the dashboard shows the correct onboard command:
+
+```bash
+# .env
+PUBLIC_SERVER_URL=https://bugsi.example.com
+```
+
+This is used by the frontend to generate the `curl ... | sudo bash` onboard command shown after creating a device.
+
+### 2. Backend: CORS origins
+
+Add your frontend's URL to `CORS_ORIGINS` in `docker-compose.yml` so the browser can reach the API:
+
+```yaml
+# docker-compose.yml → backend → environment
+CORS_ORIGINS: http://localhost:5173,https://bugsi.example.com
+```
+
+### 3. Device client: backend API endpoint
+
+Devices need to know where to send telemetry. Configure via any of these (highest priority first):
+
+| Method | Example |
+|---|---|
+| CLI argument | `bugsi run --api-url https://bugsi.example.com/api/device-data` |
+| Environment variable | `BUGSI_API_URL=https://bugsi.example.com/api/device-data` |
+| Credentials file (`/mnt/usb/bugsi/credentials.json`) | `{"api_url": "https://bugsi.example.com/api/device-data", "api_key": "bugsi_..."}` |
+
+The URL **must** end with `/api/device-data`.
+
+For the Docker Compose device-client service, change it in `docker-compose.yml`:
+
+```yaml
+# docker-compose.yml → device-client → environment
+BUGSI_API_URL: https://bugsi.example.com/api/device-data
+```
+
+### Quick checklist for production deployment
+
+```bash
+# .env
+PUBLIC_SERVER_URL=https://bugsi.example.com
+```
+
+```yaml
+# docker-compose.yml → backend
+CORS_ORIGINS: https://bugsi.example.com
+
+# docker-compose.yml → device-client (if using Docker simulator)
+BUGSI_API_URL: https://bugsi.example.com/api/device-data
+```
+
+```json
+// /mnt/usb/bugsi/credentials.json (on each Raspberry Pi)
+{
+  "api_key": "bugsi_...",
+  "api_url": "https://bugsi.example.com/api/device-data"
+}
+```
+
 ## Device Client
 
 See `device-client/README.md` for documentation on the device simulator and daemon.

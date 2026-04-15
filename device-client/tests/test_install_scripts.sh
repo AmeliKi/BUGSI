@@ -59,6 +59,50 @@ check "sync barriers between stages" \
 check "read-only mount detection" \
     bash -c "grep -q 'mounted read-only' '$SCRIPT_DIR/install_hardware.sh'"
 
+# 8. sync_barrier must not be disabled (no bare 'return' before 'sync' in function body)
+check "sync_barrier not disabled in install_hardware.sh" \
+    bash -c "awk '/^sync_barrier\(\)/,/^}/ { if (/^[[:space:]]*return[[:space:]]*$/) exit 1 }' '$SCRIPT_DIR/install_hardware.sh'"
+
+# 9. install.sh has sync_barrier and uses tmpfs
+check "install.sh has sync_barrier" \
+    bash -c "grep -q 'sync_barrier()' '$SCRIPT_DIR/install.sh'"
+check "install.sh calls sync_barrier" \
+    bash -c "[ \$(grep -c 'sync_barrier' '$SCRIPT_DIR/install.sh') -ge 3 ]"
+check "install.sh uses tmpfs for pip" \
+    bash -c "grep -q 'TMPDIR.*tmp' '$SCRIPT_DIR/install.sh'"
+
+# 10. Post-install .so verification
+check "install.sh verifies ELF headers" \
+    bash -c "grep -q 'ELF' '$SCRIPT_DIR/install.sh'"
+
+# 11. install_hardware.sh zigpy pip uses --no-cache-dir
+check "zigpy pip install uses --no-cache-dir" \
+    bash -c "grep 'zigpy' '$SCRIPT_DIR/install_hardware.sh' | grep 'pip.*install' | grep -q '\-\-no-cache-dir'"
+
+# 12. Dual hardware config support
+check "hardware config prompt exists" \
+    bash -c "grep -q 'Select camera config' '$SCRIPT_DIR/install_hardware.sh'"
+check "supports --config flag" \
+    bash -c "grep -q '\-\-config=' '$SCRIPT_DIR/install_hardware.sh'"
+check "persists hardware config" \
+    bash -c "grep -q 'hardware.conf' '$SCRIPT_DIR/install_hardware.sh'"
+check "Option A has IDS event camera function" \
+    bash -c "grep -q 'install_ids_event_camera' '$SCRIPT_DIR/install_hardware.sh'"
+check "Option A has IDS RGB camera function" \
+    bash -c "grep -q 'install_ids_rgb_camera' '$SCRIPT_DIR/install_hardware.sh'"
+check "Option B has Prophesee function" \
+    bash -c "grep -q 'install_prophesee_genx320' '$SCRIPT_DIR/install_hardware.sh'"
+check "Option B has ArduCam function" \
+    bash -c "grep -q 'install_arducam_64mp' '$SCRIPT_DIR/install_hardware.sh'"
+check "verify_hardware.sh reads hardware.conf" \
+    bash -c "grep -q 'hardware.conf' '$SCRIPT_DIR/verify_hardware.sh'"
+check "download_heavy_file helper exists" \
+    bash -c "grep -q 'download_heavy_file()' '$SCRIPT_DIR/install_hardware.sh'"
+check "IDS event camera test script exists" \
+    test -f "$SCRIPT_DIR/test_ids_event_camera.py"
+check "IDS RGB camera test script exists" \
+    test -f "$SCRIPT_DIR/test_ids_rgb_camera.py"
+
 # Summary
 echo
 echo "$PASS passed, $FAIL failed out of $(( PASS + FAIL )) checks"

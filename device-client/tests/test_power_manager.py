@@ -48,12 +48,12 @@ class TestPowerManager:
     def test_check_night_mode(self, config_manager, mock_hardware, tmp_path):
         pm = self._make_pm(config_manager, mock_hardware, tmp_path)
 
-        # Default: night_start=22, night_end=6
+        # Default: awake_start=7, awake_end=21 (active 7-21, sleep otherwise)
         assert pm.check_night_mode(23) is True
         assert pm.check_night_mode(3) is True
         assert pm.check_night_mode(12) is False
-        assert pm.check_night_mode(22) is True
-        assert pm.check_night_mode(6) is False
+        assert pm.check_night_mode(7) is False
+        assert pm.check_night_mode(21) is True
 
     def test_check_low_battery(self, config_manager, mock_hardware, tmp_path):
         pm = self._make_pm(config_manager, mock_hardware, tmp_path)

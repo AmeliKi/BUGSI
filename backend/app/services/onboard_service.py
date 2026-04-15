@@ -8,6 +8,8 @@ from pathlib import Path
 from app.exceptions import NotFoundError
 
 _EXCLUDE_PATTERNS = {".venv", "__pycache__", ".pytest_cache", ".egg-info", ".git", "node_modules"}
+# Heavy binary files that are downloaded on-demand via the /files/ endpoint
+_EXCLUDE_EXTENSIONS = {".tgz", ".tar.gz", ".deb", ".whl"}
 
 
 def generate_bootstrap_script(api_key: str, api_url: str, device_name: str) -> str:
@@ -177,6 +179,9 @@ def create_bundle_tarball(
             if any(part == pat or part.endswith(pat) for pat in _EXCLUDE_PATTERNS):
                 return None
         if tarinfo.name.endswith(".pyc"):
+            return None
+        # Skip heavy binary files — devices download them via /files/ endpoint
+        if any(tarinfo.name.endswith(ext) for ext in _EXCLUDE_EXTENSIONS):
             return None
         return tarinfo
 

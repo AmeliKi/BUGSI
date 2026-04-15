@@ -20,6 +20,7 @@ def _make_config(tmp_path, battery=False, timeout_minutes=10):
     default_path.write_text(json.dumps({
         "power": {"battery": battery, "wlan_timeout_minutes": timeout_minutes},
         "webserver": {"enabled": True},
+        "wifi": {"ap_fallback_enabled": False},
     }))
     cm = ConfigManager(
         default_config_path=default_path,

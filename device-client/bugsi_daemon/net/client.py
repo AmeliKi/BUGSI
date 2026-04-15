@@ -5,7 +5,10 @@ import tempfile
 
 import httpx
 
-from bugsi_daemon.net.ota_installer import OtaInstaller, OtaInstallError
+# Lazy import: OtaInstaller / OtaInstallError are imported inside
+# process_ota_update() to avoid pulling in `cryptography` at module load.
+# This keeps lightweight commands (config-pull, telemetry, …) working even
+# when the cryptography native lib is missing or built for the wrong arch.
 
 
 class BugsiClient:
@@ -89,6 +92,8 @@ class BugsiClient:
         except Exception as e:
             self.report_ota_status(deployment_id, "failed", f"Download failed: {e}")
             return {"success": False, "install_path": None, "manifest": None, "error": f"Download failed: {e}"}
+
+        from bugsi_daemon.net.ota_installer import OtaInstaller, OtaInstallError
 
         installer = OtaInstaller(install_base_dir=install_dir)
         try:

@@ -27,6 +27,7 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     language: str
+    preferences: dict = {}
     created_at: datetime
     updated_at: datetime
 
@@ -40,6 +41,10 @@ class PasswordReset(BaseModel):
 class ChangePassword(BaseModel):
     current_password: str
     new_password: str
+
+
+class UpdatePreferencesRequest(BaseModel):
+    preferences: dict
 
 
 class UserDeviceAssignment(BaseModel):

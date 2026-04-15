@@ -41,7 +41,7 @@ class PowerControllable(ABC):
 
 
 class LteModemInterface(PowerControllable, ABC):
-    """Sixfab EG25-G LTE modem with GPIO16 hardware power control."""
+    """LTE modem with hardware power control."""
 
     @abstractmethod
     async def wait_for_network(self, timeout: float = 60.0) -> bool:
@@ -51,13 +51,17 @@ class LteModemInterface(PowerControllable, ABC):
     async def get_signal_info(self) -> dict:
         """Return {'lte_signal_strength': int, 'lte_signal_quality': int}."""
 
+    @abstractmethod
+    async def get_network_interface(self) -> str | None:
+        """Return the OS network interface name for the LTE data connection (e.g. 'usb0')."""
+
 
 class PowerManagementInterface(ABC):
-    """Witty Pi 4 Mini - RTC and power scheduling."""
+    """Witty Pi 5 - RTC and power scheduling."""
 
     @abstractmethod
     async def initialize(self) -> None:
-        """Initialize I2C communication with Witty Pi."""
+        """Initialize communication with power management hardware."""
 
     @abstractmethod
     async def get_rtc_time(self) -> datetime:
@@ -84,6 +88,14 @@ class PowerManagementInterface(ABC):
         """Return the reason for the last boot: 'rtc_wake' or 'cold_boot'."""
 
     @abstractmethod
+    async def get_temperature(self) -> float:
+        """Read temperature from onboard sensor."""
+
+    @abstractmethod
+    async def get_input_voltage(self) -> float:
+        """Read input voltage."""
+
+    @abstractmethod
     async def shutdown(self) -> None:
         """Release resources."""
 
@@ -103,9 +115,35 @@ class WlanInterface(ABC):
     def is_enabled(self) -> bool:
         """Return True if the WLAN radio is currently enabled."""
 
+    @abstractmethod
+    async def has_internet(self) -> bool:
+        """Return True if WLAN is connected and has internet access."""
 
-class CameraInterface(ABC):
-    """Interface for camera hardware (Arducam 64MP or similar)."""
+    @abstractmethod
+    async def is_connected(self) -> bool:
+        """Return True if connected to an infrastructure WiFi network."""
+
+    @abstractmethod
+    async def start_hotspot(self, ssid: str, password: str) -> bool:
+        """Start a WiFi AP hotspot. Returns True on success."""
+
+    @abstractmethod
+    async def stop_hotspot(self) -> None:
+        """Stop the WiFi AP hotspot, if active."""
+
+    @abstractmethod
+    async def is_hotspot_active(self) -> bool:
+        """Return True if a hotspot is currently active."""
+
+    @abstractmethod
+    async def can_reach_host(self, host: str, port: int, timeout: float = 3.0) -> bool:
+        """Return True if a TCP connection to host:port succeeds."""
+
+
+# --- Camera interfaces ---
+
+class StillCameraInterface(ABC):
+    """Interface for still/frame cameras (e.g. Arducam 64MP)."""
 
     @abstractmethod
     def open(self) -> None:
@@ -122,3 +160,61 @@ class CameraInterface(ABC):
     @abstractmethod
     def is_open(self) -> bool:
         """Return True if the camera is currently open and ready."""
+
+
+# Backwards compatibility alias
+CameraInterface = StillCameraInterface
+
+
+class EventCameraInterface(PowerControllable, ABC):
+    """Interface for event-based cameras (e.g. Prophesee GenX320)."""
+
+    @abstractmethod
+    async def initialize(self) -> None:
+        """Open device and configure event processing pipeline."""
+
+    @abstractmethod
+    async def start_detection(self) -> None:
+        """Start the event stream and begin monitoring for events."""
+
+    @abstractmethod
+    async def stop_detection(self) -> None:
+        """Stop the event stream."""
+
+    @abstractmethod
+    async def wait_for_detection(self, timeout: float | None = None) -> bool:
+        """Block until a detection event occurs or timeout. Returns True if detected."""
+
+    @abstractmethod
+    async def capture_event_frame(self) -> "np.ndarray":
+        """Capture a visualization of recent events as a BGR numpy array."""
+
+    @abstractmethod
+    async def shutdown(self) -> None:
+        """Release all resources."""
+
+    @abstractmethod
+    def is_detecting(self) -> bool:
+        """Return True if currently monitoring for events."""
+
+
+# --- Camera registries ---
+
+STILL_CAMERA_REGISTRY: dict[str, type[StillCameraInterface]] = {}
+EVENT_CAMERA_REGISTRY: dict[str, type[EventCameraInterface]] = {}
+
+
+def register_still_camera(name: str):
+    """Decorator to register a still camera driver by type name."""
+    def wrapper(cls):
+        STILL_CAMERA_REGISTRY[name] = cls
+        return cls
+    return wrapper
+
+
+def register_event_camera(name: str):
+    """Decorator to register an event camera driver by type name."""
+    def wrapper(cls):
+        EVENT_CAMERA_REGISTRY[name] = cls
+        return cls
+    return wrapper

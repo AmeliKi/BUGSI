@@ -11,6 +11,9 @@ dependencies = [
     "aiohttp>=3.9.0",
     "opencv-python-headless>=4.9.0",
     "numpy>=1.26.0",
+    "zigpy>=0.71.0",
+    "bellows>=0.40.0",
+    "astral>=3.2",
 ]
 
 [project.optional-dependencies]

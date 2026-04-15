@@ -45,9 +45,42 @@ def build_parser() -> argparse.ArgumentParser:
 
     subparsers.add_parser("run", help="Start the daemon", parents=[shared])
     subparsers.add_parser("telemetry", help="Collect and print one telemetry reading", parents=[shared])
-    subparsers.add_parser("upload", help="Run one upload cycle immediately", parents=[shared])
+    upload_parser = subparsers.add_parser("upload", help="Run one upload cycle immediately", parents=[shared])
+    upload_parser.add_argument(
+        "--capture-image", action="store_true", default=False,
+        help="Capture a fresh image before uploading (overrides upload.capture_image config)",
+    )
     subparsers.add_parser("status", help="Show buffer stats, config version, power mode", parents=[shared])
     subparsers.add_parser("config", help="Show current configuration", parents=[shared])
+    subparsers.add_parser("config-pull", help="Fetch latest config from SaaS", parents=[shared])
+
+    test_hw = subparsers.add_parser(
+        "test-hardware", help="Test individual hardware subsystems", parents=[shared],
+    )
+    test_hw.add_argument(
+        "subsystem", nargs="?", default=None,
+        help="Subsystem to test: cameras, climate, zigbee, lte, power, schedule, sensors, capture, all",
+    )
+
+    pair_zb = subparsers.add_parser(
+        "pair-zigbee", help="Pair a new Zigbee sensor", parents=[shared],
+    )
+    pair_zb.add_argument(
+        "--timeout", type=int, default=120,
+        help="Permit-join window in seconds (default: 120)",
+    )
+    pair_zb.add_argument(
+        "--rename", type=str, default=None,
+        help="Rename the first joined device to this friendly name",
+    )
+
+    remove_zb = subparsers.add_parser(
+        "remove-zigbee", help="Remove a paired Zigbee sensor", parents=[shared],
+    )
+    remove_zb.add_argument(
+        "device", type=str,
+        help="Device name or IEEE address to remove",
+    )
 
     return parser
 
@@ -88,24 +121,58 @@ async def run_daemon(config: ConfigManager, mock: bool) -> None:
         buffer=components["buffer"],
         backup=components["backup"],
         thumbnail_generator=components.get("thumbnail_generator"),
+        image_pipeline=components.get("image_pipeline"),
         web_server=components.get("web_server"),
     )
 
+    # Inject scheduler into web server components so routes can trigger restart
+    web_server = components.get("web_server")
+    if web_server is not None:
+        web_server._components["scheduler"] = scheduler
+
     loop = asyncio.get_event_loop()
+    stop_event = asyncio.Event()
 
     def handle_signal():
         logging.getLogger(__name__).info("Signal received, shutting down...")
-        asyncio.ensure_future(scheduler.shutdown())
+        stop_event.set()
 
     for sig in (signal.SIGTERM, signal.SIGINT):
         loop.add_signal_handler(sig, handle_signal)
 
     try:
-        await scheduler.start()
+        scheduler_task = asyncio.create_task(scheduler.start())
+        stop_task = asyncio.create_task(stop_event.wait())
+        await asyncio.wait(
+            [scheduler_task, stop_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
     finally:
-        await components["buffer"].close()
-        components["client"].close()
-        logging.getLogger(__name__).info("Daemon stopped")
+        log = logging.getLogger(__name__)
+
+        # Watchdog: if cleanup takes >8s, force exit
+        watchdog = loop.call_later(8.0, lambda: os._exit(1))
+
+        try:
+            # 1. Stop scheduler loops
+            await scheduler.stop()
+
+            # 2. Shut down all hardware sensors (especially zigpy)
+            hw = components.get("hw", {})
+            for name, sensor in hw.items():
+                if hasattr(sensor, "shutdown"):
+                    try:
+                        await asyncio.wait_for(sensor.shutdown(), timeout=3.0)
+                    except Exception:
+                        log.warning("Error shutting down %s", name, exc_info=True)
+
+            # 3. Close buffer and client
+            await components["buffer"].close()
+            components["client"].close()
+        finally:
+            watchdog.cancel()
+
+        log.info("Daemon stopped")
 
 
 async def _wait_for_credentials(config: ConfigManager) -> None:
@@ -136,15 +203,30 @@ def main() -> None:
 
     commands = {
         "telemetry": cli.cmd_telemetry,
-        "upload": cli.cmd_upload,
         "status": cli.cmd_status,
         "config": cli.cmd_config,
+        "config-pull": cli.cmd_config_pull,
     }
 
     if args.command == "run":
         if not config.is_configured:
             asyncio.run(_wait_for_credentials(config))
         asyncio.run(run_daemon(config, mock))
+    elif args.command == "test-hardware":
+        asyncio.run(cli.cmd_test_hardware(config, mock, subsystem=args.subsystem))
+    elif args.command == "pair-zigbee":
+        asyncio.run(cli.cmd_pair_zigbee(config, mock, timeout=args.timeout, rename=args.rename))
+    elif args.command == "remove-zigbee":
+        asyncio.run(cli.cmd_remove_zigbee(config, mock, name_or_ieee=args.device))
+    elif args.command == "upload":
+        if not config.is_configured:
+            print(
+                "Error: API key/URL not configured. Use --api-key/--api-url, "
+                "set BUGSI_API_KEY/BUGSI_API_URL env vars, or create a credentials.json file.",
+                file=sys.stderr,
+            )
+            sys.exit(1)
+        asyncio.run(cli.cmd_upload(config, mock, capture_image=args.capture_image))
     elif args.command in commands:
         if not config.is_configured:
             print(
