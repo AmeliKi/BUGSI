@@ -1,3 +1,13 @@
+# BUGSI - Tiny Tracker Infinite Vision
+
+BUGSI is an autonomous, solar‑powered, and non‑invasive insect monitoring system designed for scalable ecological research. The device is lightweight, portable, and adaptable to a wide range of field conditions and research questions — from monitoring pollinators to observing ground‑dwelling spiders and beetles.
+At its core, BUGSI uses Dynamic Vision Sensor (DVS) technology, which detects pixel‑level brightness changes in real time. This enables the system to capture fast, small‑scale insect movements with high temporal precision while keeping power use and data volume extremely low.
+The device integrates additional environmental sensors (temperature, humidity, light, wind, and ambient sound) and can operate as a standalone monitoring unit or as an enhancement to traditional traps, increasing accuracy while reducing ecological impact.
+
+
+
+
+
 # BUGSI - Device Management SaaS
 
 Backend and frontend for managing autonomous insect detection devices. Handles device registration, telemetry collection, remote configuration, and over-the-air (OTA) firmware updates.
