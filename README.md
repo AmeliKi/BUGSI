@@ -5,7 +5,7 @@ At its core, BUGSI uses Dynamic Vision Sensor (DVS) technology, which detects pi
 The device integrates additional environmental sensors (temperature, humidity, light, wind, and ambient sound) and can operate as a standalone monitoring unit or as an enhancement to traditional traps, increasing accuracy while reducing ecological impact.
 
 
-
+![BUGSI Prototype_small](docs/images/BUGSI Prototype_small.jpg)
 
 
 # BUGSI - Device Management SaaS
