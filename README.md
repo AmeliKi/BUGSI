@@ -4,9 +4,9 @@ BUGSI is an autonomous, solar‑powered, and non‑invasive insect monitoring sy
 At its core, BUGSI uses Dynamic Vision Sensor (DVS) technology, which detects pixel‑level brightness changes in real time. This enables the system to capture fast, small‑scale insect movements with high temporal precision while keeping power use and data volume extremely low.
 The device integrates additional environmental sensors (temperature, humidity, light, wind, and ambient sound) and can operate as a standalone monitoring unit or as an enhancement to traditional traps, increasing accuracy while reducing ecological impact.
 
-
-![BUGSI Prototype_small](docs/BUGSI_Prototype_small.jpg)
-
+<p align="center">
+  <img src="docs/BUGSI_Prototype_small.jpg" alt="BUGSI Protoytpe_small">
+</p>
 
 # BUGSI - Device Management SaaS
 
@@ -401,3 +401,31 @@ BUGSI_API_URL: https://bugsi.example.com/api/device-data
 ## Device Client
 
 See `device-client/README.md` for documentation on the device simulator and daemon.
+
+## Graphical User Interface 
+
+Below four interface views of the BUGSI device‑management platform are shown:
+1) the login screen,
+2) the main dashboard with device status,
+3) OTA‑update management, packages, and deployments, and
+4) the user‑administration page with roles and account controls.
+It illustrates the core functionality of BUGSI for managing devices, updates, and users.
+
+![BUGSI Functions](docs/Basic_Functions_Bugsi_small.png)
+
+
+The screenshots below show the BUGSI telemetry dashboards, visualizing real‑time system and environmental data from deployed devices.
+They include system metrics such as CPU temperature, uptime, and memory usage, as well as device‑level sensor data like battery charge, remaining runtime, ambient temperature, and humidity.
+These views illustrate how BUGSI supports continuous monitoring and diagnostics for remote field devices.
+
+
+<p align="center">
+  <img src="docs/Monitoring_Bugsi_small.png" alt="BUGSI Monitoring">
+</p>
+
+This screenshot shows the device configuration view of the BUGSI platform.
+It highlights the editable settings for the onboard camera module, including resolution, autofocus mode, JPEG quality, exposure time, ISO/gain, and white‑balance parameters.
+This interface allows users to adjust hardware‑level system settings directly from the management dashboard.
+
+![BUGSI_Settings](docs/Settings_Bugsi.png)
+
